@@ -14,22 +14,48 @@ layout: default
   </div>
 </section>
 
-<section class="wrap">
-  <div class="feature-grid">
-    {% for cat in site.data.categories %}
-      <a class="feature feature-{{ cat.slug }}" href="{{ cat.slug | prepend: '/' | append: '/' | relative_url }}">
-        <div class="feature-body">
-          <h2 class="feature-title">{{ cat.name }}</h2>
-          <p class="feature-blurb">{{ cat.blurb }}</p>
-          <span class="feature-subs">
-            {% for sub in cat.subsections %}<span>{{ sub }}</span>{% endfor %}
-          </span>
-        </div>
-        <span class="feature-arrow" aria-hidden="true">&rarr;</span>
-      </a>
-    {% endfor %}
+<section class="graph-section">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>The map</h2>
+      <span class="graph-hint">Drag to move · scroll to zoom · click a node to open</span>
+    </div>
+  </div>
+  <div class="graph-stage" id="graph-stage">
+    <canvas id="graph-canvas"></canvas>
+    <div class="graph-tooltip" id="graph-tooltip" hidden></div>
   </div>
 </section>
+
+<script id="graph-data" type="application/json">
+{
+  "nodes": [
+    { "id": "root", "label": {{ site.title | jsonify }}, "type": "root", "url": {{ '/' | relative_url | jsonify }} },
+    {% for cat in site.data.categories %}
+    { "id": "cat-{{ cat.slug }}", "label": {{ cat.name | jsonify }}, "type": "category", "cat": {{ cat.slug | jsonify }}, "url": {{ cat.slug | prepend: '/' | append: '/' | relative_url | jsonify }} },
+      {% for sub in cat.subsections %}
+    { "id": "sub-{{ cat.slug }}-{{ sub | slugify }}", "label": {{ sub | jsonify }}, "type": "sub", "cat": {{ cat.slug | jsonify }}, "url": {{ cat.slug | prepend: '/' | append: '/' | relative_url | jsonify }} },
+        {% assign sub_posts = site.posts | where: "category", cat.slug | where: "subcategory", sub %}
+        {% for post in sub_posts %}
+    { "id": {{ post.url | jsonify }}, "label": {{ post.title | jsonify }}, "type": "post", "cat": {{ cat.slug | jsonify }}, "url": {{ post.url | relative_url | jsonify }} },
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+  ],
+  "links": [
+    {% for cat in site.data.categories %}
+    { "source": "root", "target": "cat-{{ cat.slug }}" },
+      {% for sub in cat.subsections %}
+    { "source": "cat-{{ cat.slug }}", "target": "sub-{{ cat.slug }}-{{ sub | slugify }}" },
+        {% assign sub_posts = site.posts | where: "category", cat.slug | where: "subcategory", sub %}
+        {% for post in sub_posts %}
+    { "source": "sub-{{ cat.slug }}-{{ sub | slugify }}", "target": {{ post.url | jsonify }} },
+        {% endfor %}
+      {% endfor %}
+    {% endfor %}
+  ]
+}
+</script>
 
 <section class="wrap">
   <div class="section-head">
@@ -48,3 +74,5 @@ layout: default
     {% endfor %}
   </div>
 </section>
+
+<script src="{{ '/assets/js/graph.js' | relative_url }}"></script>
