@@ -1,9 +1,11 @@
 # Ashutosh Anuradha Sharma — Personal Blog
 
-An Apple-inspired Jekyll blog hosted on GitHub Pages, organised into three
-categories — **Lab** (science), **Market** (commerce), and **Studio** (arts) —
-each with subsections. The home page shows a live,
-Obsidian-style graph of everything, generated from your content.
+A literary Jekyll blog — *"an atlas of a curious mind"* — hosted on GitHub
+Pages, organised into three rooms: **Lab** (science), **Market** (commerce),
+and **Studio** (arts), each with subsections. Set in Fraunces + Newsreader
+across a porcelain (light) / observatory-ink (dark) palette. The home page
+shows a live, Obsidian-style constellation of everything, generated from your
+content.
 
 Live at: https://rockingsharma007.github.io/ashutoshanuradhasharma/
 

@@ -5,7 +5,6 @@ layout: default
 {% assign cat_posts = site.posts | where: "category", page.category_slug %}
 
 <section class="wrap category-hero">
-  <p class="eyebrow">Category</p>
   <h1 class="display">{{ cat.name }}</h1>
   <p class="lead">{{ cat.blurb }}</p>
 </section>
@@ -16,21 +15,27 @@ layout: default
     <section class="subsection">
       <div class="subsection-head">
         <h2>{{ sub }}</h2>
-        <span class="count">{{ sub_posts | size }} post{% if sub_posts.size != 1 %}s{% endif %}</span>
+        <span class="count">{{ sub_posts | size }} {% if sub_posts.size == 1 %}entry{% else %}entries{% endif %}</span>
       </div>
       {% if sub_posts.size == 0 %}
-        <p class="empty">Nothing here yet — coming soon.</p>
+        <p class="empty">Nothing filed here yet. It's coming.</p>
       {% else %}
-        <div class="card-grid">
+        <ol class="index">
           {% for post in sub_posts %}
-            <a class="card" href="{{ post.url | relative_url }}">
-              <span class="card-tag">{{ post.subcategory }}</span>
-              <h3 class="card-title">{{ post.title }}</h3>
-              {% if post.excerpt %}<p class="card-excerpt">{{ post.excerpt | strip_html | truncatewords: 22 }}</p>{% endif %}
-              <time class="card-date">{{ post.date | date: "%b %-d, %Y" }}</time>
-            </a>
+            <li class="entry">
+              <a class="entry-link" href="{{ post.url | relative_url }}" data-cat="{{ page.category_slug }}">
+                <span class="entry-marker" aria-hidden="true"></span>
+                <span class="entry-body">
+                  <span class="entry-title">{{ post.title }}</span>
+                  {% if post.excerpt %}<span class="entry-excerpt">{{ post.excerpt | strip_html | truncatewords: 26 }}</span>{% endif %}
+                </span>
+                <span class="entry-meta">
+                  <time class="entry-date" datetime="{{ post.date | date_to_xmlschema }}">{{ post.date | date: "%B %-d, %Y" }}</time>
+                </span>
+              </a>
+            </li>
           {% endfor %}
-        </div>
+        </ol>
       {% endif %}
     </section>
   {% endfor %}

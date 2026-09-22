@@ -5,12 +5,11 @@ permalink: /admin/
 noindex: true
 ---
 <section class="wrap wrap-narrow admin">
-  <p class="eyebrow">Editor</p>
-  <h1 class="display">Write a post</h1>
+  <h1 class="display">A new entry</h1>
   <p class="lead">
-    Publishing commits a Markdown file straight to your repository via GitHub.
-    Only a token with write access to <code>{{ site.repository }}</code> can
-    publish — so no one but you can post here.
+    Publishing commits a Markdown file straight to your repository through
+    GitHub. Only a token with write access to <code>{{ site.repository }}</code>
+    can publish — so this page is open to everyone, but posting is yours alone.
   </p>
 
   <!-- ===== Sign-in / token ===== -->
@@ -62,7 +61,7 @@ noindex: true
     </div>
 
     <div class="field">
-      <label for="f-excerpt">Excerpt <span class="muted">(one line, shown on cards)</span></label>
+      <label for="f-excerpt">Excerpt <span class="muted">(one line, shown in the index)</span></label>
       <input type="text" id="f-excerpt" placeholder="A short summary">
     </div>
 

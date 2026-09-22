@@ -6,14 +6,14 @@ layout: default
     <div class="post-head">
       {% if page.category %}
         {% assign cat = site.data.categories | where: "slug", page.category | first %}
-        <a class="eyebrow" href="{{ page.category | prepend: '/' | append: '/' | relative_url }}">
-          {{ cat.name | default: page.category }}{% if page.subcategory %} · {{ page.subcategory }}{% endif %}
+        <a class="post-section" href="{{ page.category | prepend: '/' | append: '/' | relative_url }}">
+          {{ cat.name | default: page.category }}{% if page.subcategory %}, {{ page.subcategory }}{% endif %}
         </a>
       {% endif %}
       <h1 class="post-title">{{ page.title }}</h1>
       <p class="post-meta">
         <time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%B %-d, %Y" }}</time>
-        {% if page.read_time %} · {{ page.read_time }}{% endif %}
+        {% if page.read_time %} — {{ page.read_time }}{% endif %}
       </p>
     </div>
   </div>
@@ -28,6 +28,6 @@ layout: default
     <div class="prose">
       {{ content }}
     </div>
-    <a class="back-link" href="{{ page.category | prepend: '/' | append: '/' | relative_url }}">&larr; More in {{ cat.name | default: 'this category' }}</a>
+    <a class="back-link" href="{{ page.category | prepend: '/' | append: '/' | relative_url }}">&larr; Back to {{ cat.name | default: 'the index' }}</a>
   </div>
 </article>
