@@ -1,9 +1,13 @@
 /* ============================================================
-   The constellation — a live, Obsidian-style knowledge graph.
-   Self-contained canvas force simulation, no dependencies.
-   Reads its palette from the page's CSS variables, so it
-   follows the porcelain / observatory themes automatically.
-   Settles fully, then drifts slowly. No zoom, no pan.
+   Obsidian-style live knowledge graph.
+   Self-contained canvas force simulation — no dependencies.
+
+   Stability model (fixes the "scatters when you pull a node"
+   problem): constant, balanced forces — never reheated by an
+   alpha spike — plus a distance-capped repulsion, a clamped
+   velocity, and a pinned root. Once kinetic energy drops below
+   a threshold the simulation freezes; dragging a node only
+   disturbs its local neighbourhood, then settles again.
    ============================================================ */
 (function () {
   var stage = document.getElementById('graph-stage');
@@ -21,62 +25,36 @@
   var DPR = Math.max(1, window.devicePixelRatio || 1);
   var W = 0, H = 0;
 
-  // ---- palette pulled live from CSS custom properties ----
-  var css = getComputedStyle(document.documentElement);
-  var PAL = {};
-  function readPalette() {
-    css = getComputedStyle(document.documentElement);
-    PAL.root = hexOf(css.getPropertyValue('--faint'), '#8b939d');
-    PAL.lab = hexOf(css.getPropertyValue('--lab'), '#3f6fe0');
-    PAL.market = hexOf(css.getPropertyValue('--market'), '#14a179');
-    PAL.studio = hexOf(css.getPropertyValue('--studio'), '#cf8a2c');
-    PAL.ink = hexOf(css.getPropertyValue('--ink'), '#1b2028');
-    PAL.muted = hexOf(css.getPropertyValue('--muted'), '#58606b');
-    PAL.bg = hexOf(css.getPropertyValue('--bg'), '#eceeee');
-    PAL.isDark = luminance(PAL.bg) < 0.5;
-  }
-  function nodeColor(n) { return n.type === 'root' ? PAL.root : (PAL[n.cat] || PAL.lab); }
+  // ---- category palette (matches the site) ----
+  var COLORS = {
+    root: '#8e8e93',
+    lab: '#0a84ff',
+    market: '#32d074',
+    studio: '#ff6a3d'
+  };
+  function nodeColor(n) { return n.type === 'root' ? COLORS.root : (COLORS[n.cat] || '#0a84ff'); }
 
-  // ---- color helpers ----
-  function hexOf(v, fallback) {
-    v = (v || '').trim();
-    if (/^#([0-9a-f]{6})$/i.test(v)) return v;
-    if (/^#([0-9a-f]{3})$/i.test(v)) {
-      return '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
-    }
-    var m = v.match(/rgba?\(([^)]+)\)/i);
-    if (m) {
-      var p = m[1].split(',').map(function (s) { return parseFloat(s); });
-      return '#' + p.slice(0, 3).map(function (x) {
-        return ('0' + Math.round(x).toString(16)).slice(-2);
-      }).join('');
-    }
-    return fallback;
-  }
+  // small color helpers for gradient fills / glows
   function hexToRgb(h) {
     h = h.replace('#', '');
     return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
   }
   function rgba(hex, a) { var c = hexToRgb(hex); return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + a + ')'; }
-  function luminance(hex) {
+  function lighten(hex, amt) {
     var c = hexToRgb(hex);
-    return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+    return 'rgb(' + Math.round(c.r + (255 - c.r) * amt) + ',' +
+      Math.round(c.g + (255 - c.g) * amt) + ',' +
+      Math.round(c.b + (255 - c.b) * amt) + ')';
   }
-  function mix(hex, toward, amt) {
-    var c = hexToRgb(hex), t = hexToRgb(toward);
-    return 'rgb(' + Math.round(c.r + (t.r - c.r) * amt) + ',' +
-      Math.round(c.g + (t.g - c.g) * amt) + ',' +
-      Math.round(c.b + (t.b - c.b) * amt) + ')';
-  }
-
-  readPalette();
 
   // ---- build node/link objects ----
   var byId = {};
   var nodes = data.nodes.map(function (n) {
+    var isRoot = n.type === 'root';
     var node = {
       id: n.id, label: n.label, type: n.type, cat: n.cat, url: n.url,
-      x: (Math.random() - 0.5) * 300, y: (Math.random() - 0.5) * 300,
+      x: isRoot ? 0 : (Math.random() - 0.5) * 260,
+      y: isRoot ? 0 : (Math.random() - 0.5) * 260,
       vx: 0, vy: 0, deg: 0
     };
     byId[n.id] = node;
@@ -96,13 +74,13 @@
   });
 
   function baseRadius(n) {
-    var base = n.type === 'root' ? 13 : n.type === 'category' ? 8.5 : n.type === 'sub' ? 6 : 4.5;
-    return base + Math.min(n.deg, 8) * 1.1;
+    var base = n.type === 'root' ? 13 : n.type === 'category' ? 9 : n.type === 'sub' ? 6 : 4.5;
+    return base + Math.min(n.deg, 8) * 1.0; // grow with connections
   }
   function idealLength(l) {
-    if (l.source.type === 'root') return 155;
-    if (l.source.type === 'category') return 96;
-    return 58;
+    if (l.source.type === 'root') return 165;
+    if (l.source.type === 'category') return 94;
+    return 56;
   }
 
   // ---- fixed view transform (fit only, no user zoom/pan) ----
@@ -129,60 +107,75 @@
       var d = Math.hypot(nodes[i].x - cx, nodes[i].y - cy) + baseRadius(nodes[i]);
       if (d > R) R = d;
     }
-    var pad = 62;
+    var pad = 56;
     scale = Math.min((W - pad * 2), (H - pad * 2)) / (2 * R);
     scale = Math.max(0.25, Math.min(scale, 2.2));
     offsetX = W / 2 - cx * scale;
     offsetY = H / 2 - cy * scale;
   }
 
-  // ---- physics ----
-  var alpha = 1;
-  var CHARGE = -1400, CENTER = 0.012, DAMP = 0.86;
+  // ---- physics (constant balanced forces; validated for stability) ----
+  var K_REP = 5000;     // repulsion strength
+  var R_MAX = 170;      // repulsion only acts within this distance (keeps drags local)
+  var K_SPRING = 0.075; // link stiffness
+  var K_CENTER = 0.045; // gentle pull toward origin
+  var DAMP = 0.88;      // velocity damping (friction)
+  var V_MAX = 12;       // per-frame speed cap (prevents any explosion)
+  var FREEZE = 0.05;    // average kinetic energy below which we consider it settled
 
-  function tick() {
-    if (alpha <= 0.002) return; // fully settled — freeze, no jitter
-    var i, j;
+  var settled = false, settleFrames = 0;
+
+  function step() {
+    var i, j, ke = 0;
+
+    // repulsion — distance-capped so a dragged node can't shove the whole graph
     for (i = 0; i < nodes.length; i++) {
       var a = nodes[i];
       for (j = i + 1; j < nodes.length; j++) {
         var b = nodes[j];
         var dx = a.x - b.x, dy = a.y - b.y;
         var d2 = dx * dx + dy * dy || 0.01, d = Math.sqrt(d2);
-        var f = (CHARGE * alpha) / d2, fx = (dx / d) * f, fy = (dy / d) * f;
+        if (d > R_MAX) continue;
+        var f = K_REP / d2, fx = (dx / d) * f, fy = (dy / d) * f;
         a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
       }
     }
+
+    // springs toward each link's ideal length
     for (var k = 0; k < links.length; k++) {
       var l = links[k], L = idealLength(l);
       var ddx = l.target.x - l.source.x, ddy = l.target.y - l.source.y;
       var dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01;
-      var force = (dist - L) * 0.06 * alpha, ux = ddx / dist, uy = ddy / dist;
+      var force = (dist - L) * K_SPRING, ux = ddx / dist, uy = ddy / dist;
       l.source.vx += ux * force; l.source.vy += uy * force;
       l.target.vx -= ux * force; l.target.vy -= uy * force;
     }
+
+    // integrate — root stays pinned at the origin, dragged node is held still
     for (var m = 0; m < nodes.length; m++) {
       var n = nodes[m];
-      if (n === dragging) continue;
-      n.vx += -n.x * CENTER * alpha; n.vy += -n.y * CENTER * alpha;
+      if (n === dragging) { n.vx = 0; n.vy = 0; continue; }
+      if (n.type === 'root') { n.vx = 0; n.vy = 0; n.x = 0; n.y = 0; continue; }
+      n.vx += -n.x * K_CENTER; n.vy += -n.y * K_CENTER;
       n.vx *= DAMP; n.vy *= DAMP;
+      var sp = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+      if (sp > V_MAX) { n.vx = n.vx / sp * V_MAX; n.vy = n.vy / sp * V_MAX; }
       n.x += n.vx; n.y += n.vy;
+      ke += n.vx * n.vx + n.vy * n.vy;
     }
-    if (alpha > 0.002) alpha *= 0.985; else alpha = 0;
+    return ke / nodes.length;
   }
 
-  // Slow whole-graph rotation once settled and idle.
-  var ROT = 0.0008;
+  // Slow whole-graph rotation once settled and idle — around the pinned root.
+  var ROT = 0.0006;
   function ambient() {
-    if (alpha > 0.05 || dragging || hoverNode) return;
-    var cx = 0, cy = 0, i;
-    for (i = 0; i < nodes.length; i++) { cx += nodes[i].x; cy += nodes[i].y; }
-    cx /= nodes.length; cy /= nodes.length;
     var cos = Math.cos(ROT), sin = Math.sin(ROT);
-    for (i = 0; i < nodes.length; i++) {
-      var n = nodes[i], dx = n.x - cx, dy = n.y - cy;
-      n.x = cx + dx * cos - dy * sin;
-      n.y = cy + dx * sin + dy * cos;
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.type === 'root') continue;
+      var x = n.x, y = n.y;
+      n.x = x * cos - y * sin;
+      n.y = x * sin + y * cos;
     }
   }
 
@@ -198,18 +191,16 @@
     var connected = hoverNode ? neighbors[hoverNode.id] : null;
     function isDim(n) { return hoverNode && !(n === hoverNode || connected[n.id]); }
 
-    var linkBase = PAL.isDark ? 0.20 : 0.16;
-
     // links
     for (var i = 0; i < links.length; i++) {
       var l = links[i];
       var hot = hoverNode && (l.source === hoverNode || l.target === hoverNode);
       var faded = hoverNode && !hot;
       if (hot) {
-        ctx.strokeStyle = rgba(nodeColor(l.target.type === 'root' ? l.source : l.target), 0.6);
-        ctx.lineWidth = 1.7 / scale;
+        ctx.strokeStyle = rgba(nodeColor(l.target.type === 'root' ? l.source : l.target), 0.55);
+        ctx.lineWidth = 1.6 / scale;
       } else {
-        ctx.strokeStyle = rgba(PAL.muted, faded ? 0.05 : linkBase);
+        ctx.strokeStyle = faded ? rgba('#8a8a90', 0.06) : rgba('#8a8a90', 0.22);
         ctx.lineWidth = 1 / scale;
       }
       ctx.beginPath();
@@ -225,30 +216,17 @@
       var col = nodeColor(n);
       var dim = isDim(n);
       var hot = n === hoverNode || (connected && connected[n.id]);
-      ctx.globalAlpha = dim ? 0.2 : 1;
-
-      // hub halo — a faint wide ring behind the structural nodes
-      if ((n.type === 'root' || n.type === 'category') && !dim) {
-        var hr = r * (n.type === 'root' ? 2.6 : 2.1);
-        var halo = ctx.createRadialGradient(n.x, n.y, r * 0.6, n.x, n.y, hr);
-        halo.addColorStop(0, rgba(col, PAL.isDark ? 0.22 : 0.16));
-        halo.addColorStop(1, rgba(col, 0));
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, hr, 0, Math.PI * 2);
-        ctx.fillStyle = halo;
-        ctx.fill();
-      }
+      ctx.globalAlpha = dim ? 0.22 : 1;
 
       // soft glow
-      ctx.shadowColor = rgba(col, dim ? 0 : (PAL.isDark ? 0.6 : 0.4));
-      ctx.shadowBlur = (n === hoverNode ? 28 : hot ? 16 : 9);
+      ctx.shadowColor = rgba(col, dim ? 0 : 0.55);
+      ctx.shadowBlur = (n === hoverNode ? 26 : hot ? 16 : 9);
 
-      // orb: light core easing into the category color
-      var core = PAL.isDark ? mix(col, '#ffffff', 0.5) : mix(col, '#ffffff', 0.4);
+      // radial-gradient fill for an orb-like look
       var g = ctx.createRadialGradient(
-        n.x - r * 0.35, n.y - r * 0.35, r * 0.12, n.x, n.y, r
+        n.x - r * 0.35, n.y - r * 0.35, r * 0.15, n.x, n.y, r
       );
-      g.addColorStop(0, core);
+      g.addColorStop(0, lighten(col, 0.45));
       g.addColorStop(1, col);
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -256,33 +234,41 @@
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // faint rim to lift the orb off the background
+      // faint rim
       ctx.lineWidth = 1 / scale;
-      ctx.strokeStyle = rgba(PAL.isDark ? '#ffffff' : '#ffffff', PAL.isDark ? 0.18 : 0.5);
+      ctx.strokeStyle = rgba('#ffffff', 0.22);
       ctx.stroke();
 
-      // labels — serif, to match the page
+      // labels
       var showLabel = n.type !== 'post' || n === hoverNode || (connected && connected[n.id]);
       if (showLabel && !dim) {
-        var fs = (n.type === 'root' ? 15 : n.type === 'category' ? 13.5 : 11.5) / scale;
-        var weight = n.type === 'root' || n.type === 'category' ? '500' : '400';
-        ctx.font = weight + ' ' + fs + 'px "Fraunces", Georgia, serif';
+        var fs = (n.type === 'root' ? 14 : n.type === 'category' ? 12.5 : 11) / scale;
+        ctx.font = '500 ' + fs + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        // legibility halo behind text
-        ctx.lineWidth = 3 / scale;
-        ctx.strokeStyle = rgba(PAL.bg, 0.85);
-        ctx.fillStyle = hot ? PAL.ink : PAL.muted;
+        ctx.fillStyle = (getComputedStyle(document.body).getPropertyValue('--text-soft') || '#6e6e73').trim();
         var text = n.label.length > 32 ? n.label.slice(0, 30) + '…' : n.label;
-        ctx.strokeText(text, n.x, n.y + r + 5 / scale);
-        ctx.fillText(text, n.x, n.y + r + 5 / scale);
+        ctx.fillText(text, n.x, n.y + r + 4 / scale);
       }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
   }
 
-  function frame() { tick(); ambient(); draw(); requestAnimationFrame(frame); }
+  function frame() {
+    if (dragging || !settled) {
+      var ke = step();
+      if (!dragging && ke < FREEZE) {
+        if (++settleFrames > 24) settled = true;
+      } else {
+        settleFrames = 0;
+      }
+    } else {
+      ambient();
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
 
   // ---- picking ----
   function nodeAt(px, py) {
@@ -307,14 +293,15 @@
     var p = pointerPos(e);
     downAt = p; moved = 0; last = p;
     var hit = nodeAt(p.x, p.y);
-    if (hit) { dragging = hit; alpha = Math.max(alpha, 0.5); }
+    // Grabbing a node just un-freezes the sim — no alpha spike, so the rest
+    // of the graph barely moves while this one is dragged.
+    if (hit) { dragging = hit; settled = false; settleFrames = 0; }
   }
   function onMove(e) {
     var p = pointerPos(e);
     if (dragging) {
       var w = toWorld(p.x, p.y);
       dragging.x = w.x; dragging.y = w.y; dragging.vx = 0; dragging.vy = 0;
-      alpha = Math.max(alpha, 0.3);
       moved += Math.abs(p.x - last.x) + Math.abs(p.y - last.y);
     } else {
       var hit = nodeAt(p.x, p.y);
@@ -333,6 +320,8 @@
       var hit = nodeAt(downAt.x, downAt.y);
       if (hit && hit.url && moved < 6) window.location.href = hit.url;
     }
+    // Release: let the local neighbourhood re-settle, then it freezes again.
+    if (dragging) { settled = false; settleFrames = 0; }
     dragging = null; downAt = null; canvas.style.cursor = 'default';
   }
 
@@ -345,18 +334,9 @@
   canvas.addEventListener('touchend', onUp);
   window.addEventListener('resize', resize);
 
-  // Re-read palette when the theme changes (data-theme attr flips on <html>).
-  new MutationObserver(readPalette).observe(document.documentElement, {
-    attributes: true, attributeFilter: ['data-theme']
-  });
-  if (window.matchMedia) {
-    try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readPalette); }
-    catch (e) { /* older browsers */ }
-  }
-
   // ---- boot ----
   resize();
-  for (var s = 0; s < 500; s++) tick();  // settle off-screen
+  for (var s = 0; s < 500; s++) step();  // settle off-screen
   fitToContent();
   frame();
 })();

@@ -5,6 +5,7 @@ layout: default
 {% assign cat_posts = site.posts | where: "category", page.category_slug %}
 
 <section class="wrap category-hero">
+  <p class="eyebrow">Category</p>
   <h1 class="display">{{ cat.name }}</h1>
   <p class="lead">{{ cat.blurb }}</p>
 </section>
@@ -20,22 +21,16 @@ layout: default
       {% if sub_posts.size == 0 %}
         <p class="empty">Nothing filed here yet. It's coming.</p>
       {% else %}
-        <ol class="index">
+        <div class="card-grid">
           {% for post in sub_posts %}
-            <li class="entry">
-              <a class="entry-link" href="{{ post.url | relative_url }}" data-cat="{{ page.category_slug }}">
-                <span class="entry-marker" aria-hidden="true"></span>
-                <span class="entry-body">
-                  <span class="entry-title">{{ post.title }}</span>
-                  {% if post.excerpt %}<span class="entry-excerpt">{{ post.excerpt | strip_html | truncatewords: 26 }}</span>{% endif %}
-                </span>
-                <span class="entry-meta">
-                  <time class="entry-date" datetime="{{ post.date | date_to_xmlschema }}">{{ post.date | date: "%B %-d, %Y" }}</time>
-                </span>
-              </a>
-            </li>
+            <a class="card" href="{{ post.url | relative_url }}">
+              <span class="card-tag">{{ post.subcategory }}</span>
+              <h3 class="card-title">{{ post.title }}</h3>
+              {% if post.excerpt %}<p class="card-excerpt">{{ post.excerpt | strip_html | truncatewords: 22 }}</p>{% endif %}
+              <time class="card-date">{{ post.date | date: "%b %-d, %Y" }}</time>
+            </a>
           {% endfor %}
-        </ol>
+        </div>
       {% endif %}
     </section>
   {% endfor %}

@@ -4,6 +4,7 @@ title: About
 permalink: /about/
 ---
 <section class="wrap wrap-narrow about">
+  <p class="eyebrow">About</p>
   <h1 class="display">Hello, I'm Ashutosh.</h1>
   <div class="prose">
     <p class="lead">

@@ -5,6 +5,7 @@
       {% for cat in site.data.categories %}
         <a href="{{ cat.slug | prepend: '/' | append: '/' | relative_url }}">{{ cat.name }}</a>
       {% endfor %}
+      <a href="{{ '/archive/' | relative_url }}">Archive</a>
       <a href="{{ '/about/' | relative_url }}">About</a>
     </nav>
     <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme">
