@@ -1,7 +1,9 @@
-# Ashutosh Sharma — Personal Blog
+# Ashutosh Anuradha Sharma — Personal Blog
 
 An Apple-inspired Jekyll blog hosted on GitHub Pages, organised into three
-categories — **Science**, **Commerce**, and **Arts** — each with subsections.
+categories — **The Lab** (science), **The Market** (commerce), and
+**The Studio** (arts) — each with subsections. The home page shows a live,
+Obsidian-style graph of everything, generated from your content.
 
 Live at: https://rockingsharma007.github.io/ashutoshanuradhasharma/
 
@@ -13,7 +15,29 @@ Live at: https://rockingsharma007.github.io/ashutoshanuradhasharma/
 
 No build tools needed — GitHub builds the Jekyll site for you on every push.
 
-## Write a new post
+## Write posts from the site itself (owner-only)
+
+Go to **`/admin/`** on your live site. It's an in-browser editor that commits
+a new post straight to this repo through the GitHub API.
+
+**How only you can post:** the page is public, but publishing requires a
+GitHub **personal access token with write access to this repo** — which only
+you hold. Anyone else who opens `/admin/` has no valid token and simply can't
+publish. The token is stored only in your own browser (localStorage) and is
+sent only to GitHub.
+
+Set-up (once):
+1. Create a **fine-grained** token at
+   https://github.com/settings/tokens?type=beta
+   — **Repository access:** only `ashutoshanuradhasharma`;
+   **Permissions → Contents:** *Read and write*.
+2. Open `/admin/`, paste the token, click **Connect**.
+3. Fill in the form and hit **Publish**. Your post appears after the ~1-minute rebuild.
+
+> Keep the token private. If it ever leaks, revoke it on the same GitHub page —
+> that instantly disables publishing until you issue a new one.
+
+## Write a post manually (alternative)
 
 Create a file in [`_posts/`](_posts/) named `YYYY-MM-DD-your-title.md`:
 
@@ -21,7 +45,7 @@ Create a file in [`_posts/`](_posts/) named `YYYY-MM-DD-your-title.md`:
 ---
 title: "Your Title"
 date: 2026-09-22
-category: science        # science | commerce | arts
+category: lab            # lab | market | studio
 subcategory: Physics     # must match a subsection in _data/categories.yml
 excerpt: One-line summary shown on cards.
 read_time: "4 min read"  # optional
@@ -31,17 +55,17 @@ hero: /assets/img/your-image.jpg   # optional banner image
 Your Markdown content here.
 ```
 
-The post automatically appears on the home page and under its category/subsection.
-
 ## Change categories or subsections
 
-Edit [`_data/categories.yml`](_data/categories.yml). The nav, home page, and
-category pages all update from that one file.
+Edit [`_data/categories.yml`](_data/categories.yml) — the `name` is the display
+label, the `slug` is used in URLs and post front matter. The nav, home graph,
+category pages, and editor all update from that one file.
 
 ## Customise
 
-- **Name / tagline / URL:** [`_config.yml`](_config.yml)
+- **Name / tagline / URL / repo:** [`_config.yml`](_config.yml)
 - **Colors, fonts, layout:** [`assets/css/style.css`](assets/css/style.css) (theme variables at the top)
+- **Home graph behaviour:** [`assets/js/graph.js`](assets/js/graph.js)
 - **About page:** [`about.md`](about.md)
 
 ## Preview locally (optional)

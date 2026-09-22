@@ -1,7 +1,7 @@
 ---
 title: "On Negative Space"
 date: 2026-09-18
-category: arts
+category: studio
 subcategory: Design
 excerpt: What isn't there does as much work as what is — a note on restraint in design.
 read_time: "3 min read"

@@ -1,9 +1,13 @@
-title: Ashutosh Sharma
-tagline: Notes on Science, Commerce & the Arts
+title: Ashutosh Anuradha Sharma
+tagline: Notes from the Lab, the Market & the Studio
 description: >-
-  A personal blog exploring ideas across Science, Commerce and Arts —
-  written by Ashutosh Sharma.
-author: Ashutosh Sharma
+  A personal blog exploring ideas across the Lab, the Market and the Studio —
+  written by Ashutosh Anuradha Sharma.
+author: Ashutosh Anuradha Sharma
+
+# GitHub repo this site is committed to (used by the in-site editor at /admin/).
+repository: rockingsharma007/ashutoshanuradhasharma
+branch: main
 
 # This is a project site, so it is served from a subpath.
 # If you later rename the repo to <username>.github.io, set baseurl to "".

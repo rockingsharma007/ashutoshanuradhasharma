@@ -1,7 +1,7 @@
 ---
 title: "Why the Sky Is Blue (and Sunsets Aren't)"
 date: 2026-09-10
-category: science
+category: lab
 subcategory: Physics
 excerpt: A short tour of Rayleigh scattering and why the same physics paints both a blue noon and a red dusk.
 read_time: "4 min read"

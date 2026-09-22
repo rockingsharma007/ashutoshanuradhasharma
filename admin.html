@@ -1,0 +1,253 @@
+---
+layout: default
+title: New Post
+permalink: /admin/
+noindex: true
+---
+<section class="wrap wrap-narrow admin">
+  <p class="eyebrow">Editor</p>
+  <h1 class="display">Write a post</h1>
+  <p class="lead">
+    Publishing commits a Markdown file straight to your repository via GitHub.
+    Only a token with write access to <code>{{ site.repository }}</code> can
+    publish — so no one but you can post here.
+  </p>
+
+  <!-- ===== Sign-in / token ===== -->
+  <div class="admin-card" id="auth-card">
+    <h2>Connect to GitHub</h2>
+    <p class="admin-help">
+      Paste a <strong>fine-grained personal access token</strong> scoped to
+      <em>only this repository</em>, with <strong>Contents: Read and write</strong>.
+      Create one at
+      <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a>.
+      It is stored only in this browser (localStorage) and sent only to GitHub.
+    </p>
+    <div class="field">
+      <label for="token">Access token</label>
+      <input type="password" id="token" placeholder="github_pat_…" autocomplete="off">
+    </div>
+    <div class="admin-actions">
+      <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
+      <button class="btn" id="connect-btn">Connect</button>
+    </div>
+    <p class="status" id="auth-status" hidden></p>
+  </div>
+
+  <!-- ===== Composer (revealed after auth) ===== -->
+  <form class="admin-card" id="composer" hidden>
+    <div class="composer-head">
+      <h2>New post</h2>
+      <button type="button" class="link-btn" id="signout-btn">Sign out</button>
+    </div>
+
+    <div class="field">
+      <label for="f-title">Title</label>
+      <input type="text" id="f-title" required placeholder="A memorable title">
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="f-cat">Category</label>
+        <select id="f-cat"></select>
+      </div>
+      <div class="field">
+        <label for="f-sub">Subsection</label>
+        <select id="f-sub"></select>
+      </div>
+      <div class="field">
+        <label for="f-date">Date</label>
+        <input type="date" id="f-date">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="f-excerpt">Excerpt <span class="muted">(one line, shown on cards)</span></label>
+      <input type="text" id="f-excerpt" placeholder="A short summary">
+    </div>
+
+    <div class="field">
+      <label for="f-read">Read time <span class="muted">(optional)</span></label>
+      <input type="text" id="f-read" placeholder="4 min read">
+    </div>
+
+    <div class="field">
+      <label for="f-body">Body <span class="muted">(Markdown)</span></label>
+      <textarea id="f-body" rows="14" placeholder="Write your post in Markdown…"></textarea>
+    </div>
+
+    <div class="admin-actions">
+      <span class="muted" id="filename-preview"></span>
+      <button type="submit" class="btn" id="publish-btn">Publish</button>
+    </div>
+    <p class="status" id="pub-status" hidden></p>
+  </form>
+</section>
+
+<script id="admin-cats" type="application/json">
+[
+  {% for cat in site.data.categories %}
+  { "name": {{ cat.name | jsonify }}, "slug": {{ cat.slug | jsonify }}, "subs": [ {% for sub in cat.subsections %}{{ sub | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %} ] }{% unless forloop.last %},{% endunless %}
+  {% endfor %}
+]
+</script>
+
+<script>
+(function () {
+  var REPO = {{ site.repository | jsonify }};
+  var BRANCH = {{ site.branch | default: 'main' | jsonify }};
+  var CATS = JSON.parse(document.getElementById('admin-cats').textContent);
+  var KEY = 'gh_pat';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var authCard = $('auth-card'), composer = $('composer');
+
+  // ---- helpers ----
+  function utf8ToB64(str) {
+    var bytes = new TextEncoder().encode(str), bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function slugify(s) {
+    return s.toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'post';
+  }
+  function today() { return new Date().toISOString().slice(0, 10); }
+  function setStatus(el, msg, kind) {
+    el.hidden = false; el.textContent = msg;
+    el.className = 'status' + (kind ? ' status-' + kind : '');
+  }
+  function gh(path, opts) {
+    opts = opts || {};
+    return fetch('https://api.github.com/' + path, {
+      method: opts.method || 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + getToken(),
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+  }
+  function getToken() { return $('token')._value || ''; }
+
+  // ---- category / subsection selects ----
+  function fillCats() {
+    var cat = $('f-cat'), sub = $('f-sub');
+    cat.innerHTML = CATS.map(function (c) {
+      return '<option value="' + c.slug + '">' + c.name + '</option>';
+    }).join('');
+    function fillSubs() {
+      var c = CATS.filter(function (x) { return x.slug === cat.value; })[0];
+      sub.innerHTML = (c ? c.subs : []).map(function (s) {
+        return '<option value="' + s + '">' + s + '</option>';
+      }).join('');
+    }
+    cat.addEventListener('change', fillSubs);
+    fillSubs();
+  }
+
+  function updateFilename() {
+    var d = $('f-date').value || today();
+    $('filename-preview').textContent = '_posts/' + d + '-' + slugify($('f-title').value || 'untitled') + '.md';
+  }
+
+  // ---- auth ----
+  function showComposer() {
+    authCard.hidden = true; composer.hidden = false;
+    $('f-date').value = today();
+    fillCats(); updateFilename();
+  }
+  function verifyAndEnter() {
+    setStatus($('auth-status'), 'Checking access…');
+    gh('repos/' + REPO).then(function (r) {
+      if (!r.ok) throw new Error(r.status === 401 ? 'Invalid or expired token.' : 'GitHub error ' + r.status);
+      return r.json();
+    }).then(function (repo) {
+      if (!repo.permissions || !repo.permissions.push) {
+        throw new Error('This token has no write access to ' + REPO + '. You cannot publish.');
+      }
+      if ($('remember').checked) { try { localStorage.setItem(KEY, getToken()); } catch (e) {} }
+      showComposer();
+    }).catch(function (err) {
+      setStatus($('auth-status'), err.message, 'error');
+    });
+  }
+
+  $('connect-btn').addEventListener('click', function () {
+    $('token')._value = $('token').value.trim();
+    if (!getToken()) { setStatus($('auth-status'), 'Enter a token first.', 'error'); return; }
+    verifyAndEnter();
+  });
+  $('signout-btn').addEventListener('click', function () {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    $('token')._value = ''; $('token').value = '';
+    composer.hidden = true; authCard.hidden = false;
+    $('auth-status').hidden = true;
+  });
+
+  $('f-title').addEventListener('input', updateFilename);
+  $('f-date').addEventListener('input', updateFilename);
+
+  // ---- publish ----
+  $('composer').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var title = $('f-title').value.trim();
+    if (!title) { setStatus($('pub-status'), 'A title is required.', 'error'); return; }
+    var date = $('f-date').value || today();
+    var slug = slugify(title);
+    var path = '_posts/' + date + '-' + slug + '.md';
+
+    var fm = '---\n' +
+      'title: "' + title.replace(/"/g, '\\"') + '"\n' +
+      'date: ' + date + '\n' +
+      'category: ' + $('f-cat').value + '\n' +
+      'subcategory: ' + $('f-sub').value + '\n' +
+      (($('f-excerpt').value.trim()) ? 'excerpt: "' + $('f-excerpt').value.trim().replace(/"/g, '\\"') + '"\n' : '') +
+      (($('f-read').value.trim()) ? 'read_time: "' + $('f-read').value.trim().replace(/"/g, '\\"') + '"\n' : '') +
+      '---\n\n' + $('f-body').value.trim() + '\n';
+
+    setStatus($('pub-status'), 'Publishing…');
+    $('publish-btn').disabled = true;
+
+    gh('repos/' + REPO + '/contents/' + encodeURIComponent(path).replace(/%2F/g, '/'), {
+      method: 'PUT',
+      body: {
+        message: 'post: ' + title,
+        content: utf8ToB64(fm),
+        branch: BRANCH
+      }
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+    }).then(function (res) {
+      $('publish-btn').disabled = false;
+      if (res.ok) {
+        var url = res.body.commit && res.body.commit.html_url;
+        setStatus($('pub-status'),
+          'Published! GitHub Pages will rebuild in ~1 minute. ' + (url ? '' : ''), 'ok');
+        if (url) {
+          var a = document.createElement('a');
+          a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' View commit →';
+          $('pub-status').appendChild(a);
+        }
+        $('composer').reset();
+        $('f-date').value = today(); fillCats(); updateFilename();
+      } else if (res.status === 422 || res.status === 409) {
+        setStatus($('pub-status'), 'A post with that date + title already exists. Change the title or date.', 'error');
+      } else {
+        setStatus($('pub-status'), 'Failed: ' + (res.body.message || res.status), 'error');
+      }
+    }).catch(function (err) {
+      $('publish-btn').disabled = false;
+      setStatus($('pub-status'), 'Network error: ' + err.message, 'error');
+    });
+  });
+
+  // ---- restore remembered token ----
+  (function restore() {
+    var saved = '';
+    try { saved = localStorage.getItem(KEY) || ''; } catch (e) {}
+    if (saved) { $('token').value = saved; $('token')._value = saved; verifyAndEnter(); }
+  })();
+})();
+</script>

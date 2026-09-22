@@ -1,5 +1,5 @@
 /* ===========================================================
-   Ashutosh Sharma — personal blog
+   Ashutosh Anuradha Sharma — personal blog
    Apple-inspired: generous whitespace, SF-style type,
    frosted nav, restrained color, light + dark.
    =========================================================== */
@@ -282,6 +282,64 @@ img { max-width: 100%; display: block; }
 .prose li + li { margin-top: .4em; }
 
 .about { padding: 80px 0; }
+
+/* ---------- Admin / editor ---------- */
+.admin { padding: 70px 0 90px; }
+.admin .lead { margin-bottom: 34px; }
+.admin code { font-size: .85em; background: var(--bg-elev); padding: 2px 6px; border-radius: 6px; }
+.admin-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+.admin-card h2 { font-size: 22px; letter-spacing: -0.01em; margin: 0 0 8px; }
+.admin-help { font-size: 14px; color: var(--text-soft); line-height: 1.5; margin: 0 0 20px; }
+.composer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.composer-head h2 { margin: 0; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+.field .muted { font-weight: 400; color: var(--text-faint); }
+.field input, .field select, .field textarea {
+  width: 100%;
+  font: inherit; font-size: 15px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+}
+.field textarea { resize: vertical; line-height: 1.5; font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 14px; }
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.field-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+.admin-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+.remember { font-size: 14px; color: var(--text-soft); display: flex; align-items: center; gap: 7px; }
+.muted { color: var(--text-faint); font-size: 13px; }
+
+.btn {
+  padding: 11px 26px; border: none; border-radius: 980px;
+  background: var(--accent); color: #fff; font: inherit; font-size: 15px; font-weight: 500;
+  cursor: pointer; transition: background .2s, transform .2s;
+}
+.btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.btn:disabled { opacity: .55; cursor: default; transform: none; }
+.link-btn { background: none; border: none; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; padding: 0; }
+
+.status { font-size: 14px; margin: 16px 0 0; padding: 10px 14px; border-radius: var(--radius-sm); }
+.status-ok { background: color-mix(in srgb, #30b67a 16%, transparent); color: #1a7f52; }
+.status-error { background: color-mix(in srgb, #ff3b30 14%, transparent); color: #c0261d; }
+:root[data-theme="dark"] .status-ok { color: #5fd39b; }
+:root[data-theme="dark"] .status-error { color: #ff7b72; }
+
+@media (max-width: 600px) {
+  .field-row { grid-template-columns: 1fr; }
+}
 
 /* ---------- Footer ---------- */
 .footer { border-top: 1px solid var(--line); margin-top: 80px; padding: 40px 0; }

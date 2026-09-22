@@ -22,9 +22,9 @@
   // ---- category palette (matches the CSS gradients) ----
   var COLORS = {
     root: '#8e8e93',
-    science: '#0071e3',
-    commerce: '#30b67a',
-    arts: '#ff6a3d'
+    lab: '#0071e3',     // The Lab
+    market: '#30b67a',  // The Market
+    studio: '#ff6a3d'   // The Studio
   };
   function nodeColor(n) {
     if (n.type === 'root') return COLORS.root;

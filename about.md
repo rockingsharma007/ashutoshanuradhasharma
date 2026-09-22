@@ -5,7 +5,7 @@ permalink: /about/
 ---
 <section class="wrap wrap-narrow about">
   <p class="eyebrow">About</p>
-  <h1 class="display">Hello, I'm Ashutosh.</h1>
+  <h1 class="display">Hello, I'm Ashutosh Anuradha Sharma.</h1>
   <div class="prose">
     <p class="lead">
       This is a placeholder bio — replace it with your own. Write a few
@@ -13,10 +13,10 @@ permalink: /about/
       started this blog.
     </p>
     <p>
-      I write across three areas: <strong>Science</strong> (the physical
-      world and the mind), <strong>Commerce</strong> (markets and business),
-      and <strong>Arts</strong> (words, images and sound). Each has a handful
-      of subsections you can browse from the menu above.
+      I write across three areas: <strong>The Lab</strong> (the physical
+      world and the mind), <strong>The Market</strong> (markets and business),
+      and <strong>The Studio</strong> (words, images and sound). Each has a
+      handful of subsections you can browse from the menu above.
     </p>
     <p>
       You can reach me at

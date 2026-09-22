@@ -5,7 +5,7 @@ layout: default
   <div class="wrap">
     <p class="eyebrow">Personal blog</p>
     <h1 class="display display-xl">{{ site.tagline }}</h1>
-    <p class="lead lead-lg">Ideas worth writing down — across science, business and culture.</p>
+    <p class="lead lead-lg">Ideas worth writing down — from the Lab, the Market and the Studio.</p>
     <div class="hero-cta">
       {% for cat in site.data.categories %}
         <a class="pill" href="{{ cat.slug | prepend: '/' | append: '/' | relative_url }}">{{ cat.name }}</a>

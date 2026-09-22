@@ -1,7 +1,7 @@
 ---
 title: "Compounding, Explained Without the Jargon"
 date: 2026-09-14
-category: commerce
+category: market
 subcategory: Investing
 excerpt: The single idea behind long-term wealth — and why starting early beats trying to be clever.
 read_time: "5 min read"
