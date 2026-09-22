@@ -1,7 +1,8 @@
 /* ============================================================
    Obsidian-style live knowledge graph.
    Self-contained canvas force simulation — no dependencies.
-   Reads nodes/links from the #graph-data JSON block.
+   Fixed to fit the stage (no zoom / pan); nodes are soft,
+   glowing orbs sized by their number of connections.
    ============================================================ */
 (function () {
   var stage = document.getElementById('graph-stage');
@@ -19,22 +20,26 @@
   var DPR = Math.max(1, window.devicePixelRatio || 1);
   var W = 0, H = 0;
 
-  // ---- category palette (matches the CSS gradients) ----
+  // ---- category palette (matches the site) ----
   var COLORS = {
     root: '#8e8e93',
-    lab: '#0071e3',     // Lab
-    market: '#30b67a',  // Market
-    studio: '#ff6a3d'   // Studio
+    lab: '#0a84ff',
+    market: '#32d074',
+    studio: '#ff6a3d'
   };
-  function nodeColor(n) {
-    if (n.type === 'root') return COLORS.root;
-    return COLORS[n.cat] || '#0071e3';
+  function nodeColor(n) { return n.type === 'root' ? COLORS.root : (COLORS[n.cat] || '#0a84ff'); }
+
+  // small color helpers for gradient fills / glows
+  function hexToRgb(h) {
+    h = h.replace('#', '');
+    return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
   }
-  function baseRadius(n) {
-    if (n.type === 'root') return 13;
-    if (n.type === 'category') return 9;
-    if (n.type === 'sub') return 6;
-    return 4.5; // post
+  function rgba(hex, a) { var c = hexToRgb(hex); return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + a + ')'; }
+  function lighten(hex, amt) {
+    var c = hexToRgb(hex);
+    return 'rgb(' + Math.round(c.r + (255 - c.r) * amt) + ',' +
+      Math.round(c.g + (255 - c.g) * amt) + ',' +
+      Math.round(c.b + (255 - c.b) * amt) + ')';
   }
 
   // ---- build node/link objects ----
@@ -42,9 +47,8 @@
   var nodes = data.nodes.map(function (n) {
     var node = {
       id: n.id, label: n.label, type: n.type, cat: n.cat, url: n.url,
-      x: (Math.random() - 0.5) * 300,
-      y: (Math.random() - 0.5) * 300,
-      vx: 0, vy: 0
+      x: (Math.random() - 0.5) * 300, y: (Math.random() - 0.5) * 300,
+      vx: 0, vy: 0, deg: 0
     };
     byId[n.id] = node;
     return node;
@@ -53,89 +57,95 @@
     .map(function (l) { return { source: byId[l.source], target: byId[l.target] }; })
     .filter(function (l) { return l.source && l.target; });
 
-  // adjacency for hover-highlighting
+  // adjacency + degree (Obsidian sizes nodes by connection count)
   var neighbors = {};
   nodes.forEach(function (n) { neighbors[n.id] = {}; });
   links.forEach(function (l) {
     neighbors[l.source.id][l.target.id] = true;
     neighbors[l.target.id][l.source.id] = true;
+    l.source.deg++; l.target.deg++;
   });
 
+  function baseRadius(n) {
+    var base = n.type === 'root' ? 12 : n.type === 'category' ? 8 : n.type === 'sub' ? 6 : 4.5;
+    return base + Math.min(n.deg, 8) * 1.15; // grow with connections
+  }
   function idealLength(l) {
-    // longer springs the deeper we go, so the tree fans out
     if (l.source.type === 'root') return 150;
     if (l.source.type === 'category') return 95;
-    return 62;
+    return 60;
   }
 
-  // ---- view transform (pan + zoom) ----
-  var scale = 1, offsetX = 0, offsetY = 0, fitted = false;
-  function toWorld(px, py) {
-    return { x: (px - offsetX) / scale, y: (py - offsetY) / scale };
-  }
+  // ---- fixed view transform (fit only, no user zoom/pan) ----
+  var scale = 1, offsetX = 0, offsetY = 0;
+  function toWorld(px, py) { return { x: (px - offsetX) / scale, y: (py - offsetY) / scale }; }
 
-  // ---- sizing ----
   function resize() {
     var rect = stage.getBoundingClientRect();
     W = rect.width; H = rect.height;
     canvas.width = W * DPR; canvas.height = H * DPR;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    if (!fitted) { offsetX = W / 2; offsetY = H / 2; }
+    fitToContent();
+  }
+
+  // Fit the circle that circumscribes the layout, so rotation never clips.
+  function fitToContent() {
+    if (!nodes.length) return;
+    var cx = 0, cy = 0, i;
+    for (i = 0; i < nodes.length; i++) { cx += nodes[i].x; cy += nodes[i].y; }
+    cx /= nodes.length; cy /= nodes.length;
+    var R = 1;
+    for (i = 0; i < nodes.length; i++) {
+      var d = Math.hypot(nodes[i].x - cx, nodes[i].y - cy) + baseRadius(nodes[i]);
+      if (d > R) R = d;
+    }
+    var pad = 54;
+    scale = Math.min((W - pad * 2), (H - pad * 2)) / (2 * R);
+    scale = Math.max(0.25, Math.min(scale, 2.2));
+    offsetX = W / 2 - cx * scale;
+    offsetY = H / 2 - cy * scale;
   }
 
   // ---- physics ----
-  var alpha = 1;                 // simulation "temperature"
-  var CHARGE = -1400;            // node repulsion
-  var CENTER = 0.012;            // pull toward origin
-  var DAMP = 0.86;
+  var alpha = 1;
+  var CHARGE = -1400, CENTER = 0.012, DAMP = 0.86;
 
   function tick() {
     if (alpha <= 0.002) return; // fully settled — freeze, no jitter
-    // repulsion (O(n^2) — fine for a personal blog's node count)
-    for (var i = 0; i < nodes.length; i++) {
+    var i, j;
+    for (i = 0; i < nodes.length; i++) {
       var a = nodes[i];
-      for (var j = i + 1; j < nodes.length; j++) {
+      for (j = i + 1; j < nodes.length; j++) {
         var b = nodes[j];
         var dx = a.x - b.x, dy = a.y - b.y;
-        var d2 = dx * dx + dy * dy || 0.01;
-        var d = Math.sqrt(d2);
-        var f = (CHARGE * alpha) / d2;
-        var fx = (dx / d) * f, fy = (dy / d) * f;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
+        var d2 = dx * dx + dy * dy || 0.01, d = Math.sqrt(d2);
+        var f = (CHARGE * alpha) / d2, fx = (dx / d) * f, fy = (dy / d) * f;
+        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
       }
     }
-    // spring links
     for (var k = 0; k < links.length; k++) {
       var l = links[k], L = idealLength(l);
       var ddx = l.target.x - l.source.x, ddy = l.target.y - l.source.y;
       var dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01;
-      var force = (dist - L) * 0.06 * alpha;
-      var ux = ddx / dist, uy = ddy / dist;
+      var force = (dist - L) * 0.06 * alpha, ux = ddx / dist, uy = ddy / dist;
       l.source.vx += ux * force; l.source.vy += uy * force;
       l.target.vx -= ux * force; l.target.vy -= uy * force;
     }
-    // centering + integrate
     for (var m = 0; m < nodes.length; m++) {
       var n = nodes[m];
       if (n === dragging) continue;
-      n.vx += -n.x * CENTER * alpha;
-      n.vy += -n.y * CENTER * alpha;
+      n.vx += -n.x * CENTER * alpha; n.vy += -n.y * CENTER * alpha;
       n.vx *= DAMP; n.vy *= DAMP;
       n.x += n.vx; n.y += n.vy;
     }
-    // cool all the way to a fully-formed, frozen layout;
-    // ambient rotation (below) provides the slow motion instead of jitter.
-    if (alpha > 0.002) alpha *= 0.985;
-    else alpha = 0;
+    if (alpha > 0.002) alpha *= 0.985; else alpha = 0;
   }
 
-  // Slow, whole-graph rotation around its centroid — only once settled and
-  // while the visitor isn't interacting, so the shape stays intact and calm.
-  var ROT = 0.0009; // radians per frame (~2 min per revolution)
+  // Slow whole-graph rotation once settled and idle.
+  var ROT = 0.0008;
   function ambient() {
-    if (alpha > 0.05 || dragging || panning || hoverNode) return;
+    if (alpha > 0.05 || dragging || hoverNode) return;
     var cx = 0, cy = 0, i;
     for (i = 0; i < nodes.length; i++) { cx += nodes[i].x; cy += nodes[i].y; }
     cx /= nodes.length; cy /= nodes.length;
@@ -156,16 +166,21 @@
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
 
-    var dim = hoverNode ? function (n) {
-      return !(n === hoverNode || neighbors[hoverNode.id][n.id]);
-    } : function () { return false; };
+    var connected = hoverNode ? neighbors[hoverNode.id] : null;
+    function isDim(n) { return hoverNode && !(n === hoverNode || connected[n.id]); }
 
     // links
     for (var i = 0; i < links.length; i++) {
       var l = links[i];
-      var faded = hoverNode && !(l.source === hoverNode || l.target === hoverNode);
-      ctx.strokeStyle = faded ? 'rgba(140,140,150,0.08)' : 'rgba(140,140,150,0.28)';
-      ctx.lineWidth = (faded ? 0.6 : 1) / scale;
+      var hot = hoverNode && (l.source === hoverNode || l.target === hoverNode);
+      var faded = hoverNode && !hot;
+      if (hot) {
+        ctx.strokeStyle = rgba(nodeColor(l.target.type === 'root' ? l.source : l.target), 0.55);
+        ctx.lineWidth = 1.6 / scale;
+      } else {
+        ctx.strokeStyle = faded ? rgba('#8a8a90', 0.06) : rgba('#8a8a90', 0.22);
+        ctx.lineWidth = 1 / scale;
+      }
       ctx.beginPath();
       ctx.moveTo(l.source.x, l.source.y);
       ctx.lineTo(l.target.x, l.target.y);
@@ -176,166 +191,114 @@
     for (var j = 0; j < nodes.length; j++) {
       var n = nodes[j];
       var r = baseRadius(n);
-      var faint = dim(n);
-      var isHot = n === hoverNode;
-      ctx.globalAlpha = faint ? 0.25 : 1;
+      var col = nodeColor(n);
+      var dim = isDim(n);
+      var hot = n === hoverNode || (connected && connected[n.id]);
+      ctx.globalAlpha = dim ? 0.22 : 1;
 
-      if (isHot) {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r + 5 / scale, 0, Math.PI * 2);
-        ctx.fillStyle = nodeColor(n) + '33';
-        ctx.fill();
-      }
+      // soft glow
+      ctx.shadowColor = rgba(col, dim ? 0 : 0.55);
+      ctx.shadowBlur = (n === hoverNode ? 26 : hot ? 16 : 9) / 1;
 
+      // radial-gradient fill for an orb-like look
+      var g = ctx.createRadialGradient(
+        n.x - r * 0.35, n.y - r * 0.35, r * 0.15, n.x, n.y, r
+      );
+      g.addColorStop(0, lighten(col, 0.45));
+      g.addColorStop(1, col);
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = nodeColor(n);
+      ctx.fillStyle = g;
       ctx.fill();
-      ctx.lineWidth = 1.5 / scale;
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.shadowBlur = 0;
+
+      // faint rim
+      ctx.lineWidth = 1 / scale;
+      ctx.strokeStyle = rgba('#ffffff', 0.22);
       ctx.stroke();
 
-      // labels: always for structural nodes; posts only when zoomed in or hovered
-      var showLabel = n.type !== 'post' || scale > 1.35 || isHot ||
-        (hoverNode && neighbors[hoverNode.id][n.id]);
-      if (showLabel && !faint) {
-        var fs = (n.type === 'root' ? 15 : n.type === 'category' ? 13 : 11) / scale;
-        ctx.font = '600 ' + fs + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      // labels
+      var showLabel = n.type !== 'post' || n === hoverNode || (connected && connected[n.id]);
+      if (showLabel && !dim) {
+        var fs = (n.type === 'root' ? 14 : n.type === 'category' ? 12.5 : 11) / scale;
+        ctx.font = '500 ' + fs + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--text') || '#1d1d1f';
-        var text = n.label.length > 34 ? n.label.slice(0, 32) + '…' : n.label;
-        ctx.fillText(text, n.x, n.y + r + 3 / scale);
+        ctx.fillStyle = (getComputedStyle(document.body).getPropertyValue('--text-soft') || '#6e6e73').trim();
+        var text = n.label.length > 32 ? n.label.slice(0, 30) + '…' : n.label;
+        ctx.fillText(text, n.x, n.y + r + 4 / scale);
       }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
   }
 
-  function frame() {
-    tick();
-    ambient();
-    draw();
-    requestAnimationFrame(frame);
-  }
-
-  // ---- fit view to content once things settle a bit ----
-  function fitToContent() {
-    if (nodes.length === 0) return;
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(function (n) {
-      minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
-      minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
-    });
-    var pad = 70;
-    var gw = (maxX - minX) || 1, gh = (maxY - minY) || 1;
-    var s = Math.min((W - pad * 2) / gw, (H - pad * 2) / gh, 1.6);
-    scale = Math.max(0.4, s);
-    offsetX = W / 2 - ((minX + maxX) / 2) * scale;
-    offsetY = H / 2 - ((minY + maxY) / 2) * scale;
-    fitted = true;
-  }
+  function frame() { tick(); ambient(); draw(); requestAnimationFrame(frame); }
 
   // ---- picking ----
   function nodeAt(px, py) {
     var w = toWorld(px, py);
     for (var i = nodes.length - 1; i >= 0; i--) {
-      var n = nodes[i];
-      var r = baseRadius(n) + 4;
+      var n = nodes[i], r = baseRadius(n) + 5;
       var dx = n.x - w.x, dy = n.y - w.y;
       if (dx * dx + dy * dy <= r * r) return n;
     }
     return null;
   }
 
-  // ---- interaction ----
-  var dragging = null, panning = false;
-  var last = { x: 0, y: 0 };
-  var downAt = null, moved = 0;
+  // ---- interaction (drag + hover + click; no zoom/pan) ----
+  var dragging = null, downAt = null, moved = 0, last = { x: 0, y: 0 };
 
   function pointerPos(e) {
     var rect = canvas.getBoundingClientRect();
     var t = e.touches ? e.touches[0] : e;
     return { x: t.clientX - rect.left, y: t.clientY - rect.top };
   }
-
   function onDown(e) {
     var p = pointerPos(e);
     downAt = p; moved = 0; last = p;
     var hit = nodeAt(p.x, p.y);
     if (hit) { dragging = hit; alpha = Math.max(alpha, 0.5); }
-    else { panning = true; }
   }
-
   function onMove(e) {
     var p = pointerPos(e);
     if (dragging) {
       var w = toWorld(p.x, p.y);
-      dragging.x = w.x; dragging.y = w.y;
-      dragging.vx = 0; dragging.vy = 0;
-      alpha = Math.max(alpha, 0.3); // let neighbors relax around the drag
-      moved += Math.abs(p.x - last.x) + Math.abs(p.y - last.y);
-    } else if (panning) {
-      offsetX += p.x - last.x; offsetY += p.y - last.y;
+      dragging.x = w.x; dragging.y = w.y; dragging.vx = 0; dragging.vy = 0;
+      alpha = Math.max(alpha, 0.3);
       moved += Math.abs(p.x - last.x) + Math.abs(p.y - last.y);
     } else {
       var hit = nodeAt(p.x, p.y);
       hoverNode = hit;
-      canvas.style.cursor = hit ? 'pointer' : 'grab';
+      canvas.style.cursor = hit ? 'pointer' : 'default';
       if (hit) {
-        tip.hidden = false;
-        tip.textContent = hit.label;
-        tip.style.left = p.x + 'px';
-        tip.style.top = (p.y - 12) + 'px';
-      } else {
-        tip.hidden = true;
-      }
+        tip.hidden = false; tip.textContent = hit.label;
+        tip.style.left = p.x + 'px'; tip.style.top = (p.y - 12) + 'px';
+      } else { tip.hidden = true; }
     }
     last = p;
   }
-
-  function onUp(e) {
-    // a click (not a drag) on a node navigates
-    if (dragging && moved < 6 && dragging.url) {
-      window.location.href = dragging.url;
-    } else if (!dragging && !panning && downAt) {
+  function onUp() {
+    if (dragging && moved < 6 && dragging.url) window.location.href = dragging.url;
+    else if (!dragging && downAt) {
       var hit = nodeAt(downAt.x, downAt.y);
       if (hit && hit.url && moved < 6) window.location.href = hit.url;
     }
-    dragging = null; panning = false; downAt = null;
-    canvas.style.cursor = 'grab';
-  }
-
-  function onWheel(e) {
-    e.preventDefault();
-    var p = pointerPos(e);
-    var factor = Math.pow(1.0015, -e.deltaY);
-    var newScale = Math.min(4, Math.max(0.3, scale * factor));
-    // zoom toward cursor
-    var w = toWorld(p.x, p.y);
-    scale = newScale;
-    offsetX = p.x - w.x * scale;
-    offsetY = p.y - w.y * scale;
+    dragging = null; downAt = null; canvas.style.cursor = 'default';
   }
 
   canvas.addEventListener('mousedown', onDown);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
-  canvas.addEventListener('wheel', onWheel, { passive: false });
   canvas.addEventListener('mouseleave', function () { tip.hidden = true; hoverNode = null; });
-
-  // touch
   canvas.addEventListener('touchstart', function (e) { onDown(e); }, { passive: true });
   canvas.addEventListener('touchmove', function (e) { onMove(e); e.preventDefault(); }, { passive: false });
   canvas.addEventListener('touchend', onUp);
-
-  window.addEventListener('resize', function () { fitted = false; resize(); });
+  window.addEventListener('resize', resize);
 
   // ---- boot ----
   resize();
-  // fully settle the layout off-screen so it appears already formed (no jitter)
-  for (var s = 0; s < 500; s++) tick();
+  for (var s = 0; s < 500; s++) tick();  // settle off-screen
   fitToContent();
-  canvas.style.cursor = 'grab';
   frame();
 })();
