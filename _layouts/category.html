@@ -1,0 +1,37 @@
+---
+layout: default
+---
+{% assign cat = site.data.categories | where: "slug", page.category_slug | first %}
+{% assign cat_posts = site.posts | where: "category", page.category_slug %}
+
+<section class="wrap category-hero">
+  <p class="eyebrow">Category</p>
+  <h1 class="display">{{ cat.name }}</h1>
+  <p class="lead">{{ cat.blurb }}</p>
+</section>
+
+<div class="wrap">
+  {% for sub in cat.subsections %}
+    {% assign sub_posts = cat_posts | where: "subcategory", sub %}
+    <section class="subsection">
+      <div class="subsection-head">
+        <h2>{{ sub }}</h2>
+        <span class="count">{{ sub_posts | size }} post{% if sub_posts.size != 1 %}s{% endif %}</span>
+      </div>
+      {% if sub_posts.size == 0 %}
+        <p class="empty">Nothing here yet — coming soon.</p>
+      {% else %}
+        <div class="card-grid">
+          {% for post in sub_posts %}
+            <a class="card" href="{{ post.url | relative_url }}">
+              <span class="card-tag">{{ post.subcategory }}</span>
+              <h3 class="card-title">{{ post.title }}</h3>
+              {% if post.excerpt %}<p class="card-excerpt">{{ post.excerpt | strip_html | truncatewords: 22 }}</p>{% endif %}
+              <time class="card-date">{{ post.date | date: "%b %-d, %Y" }}</time>
+            </a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  {% endfor %}
+</div>

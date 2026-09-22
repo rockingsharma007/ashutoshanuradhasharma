@@ -1,0 +1,35 @@
+title: Ashutosh Sharma
+tagline: Notes on Science, Commerce & the Arts
+description: >-
+  A personal blog exploring ideas across Science, Commerce and Arts —
+  written by Ashutosh Sharma.
+author: Ashutosh Sharma
+
+# This is a project site, so it is served from a subpath.
+# If you later rename the repo to <username>.github.io, set baseurl to "".
+url: "https://rockingsharma007.github.io"
+baseurl: "/ashutoshanuradhasharma"
+
+permalink: /:categories/:year/:month/:day/:title/
+
+markdown: kramdown
+highlighter: rouge
+
+# Native GitHub Pages build supports these plugins.
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Don't process these files.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - vendor
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post

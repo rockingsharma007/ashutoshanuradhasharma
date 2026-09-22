@@ -1,0 +1,25 @@
+# The three top-level categories and their subsections.
+# Add or rename subsections here — pages update automatically.
+- name: Science
+  slug: science
+  blurb: The physical world, the mind, and everything we measure.
+  subsections:
+    - Physics
+    - Biology
+    - Technology
+
+- name: Commerce
+  slug: commerce
+  blurb: Markets, money, and the machinery of business.
+  subsections:
+    - Economics
+    - Investing
+    - Startups
+
+- name: Arts
+  slug: arts
+  blurb: Words, images, sound, and the culture around them.
+  subsections:
+    - Literature
+    - Music
+    - Design
