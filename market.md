@@ -1,6 +1,6 @@
 ---
 layout: category
-title: The Market
+title: Market
 category_slug: market
 permalink: /market/
 ---

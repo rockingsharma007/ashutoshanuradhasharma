@@ -1,6 +1,6 @@
 ---
 layout: category
-title: The Lab
+title: Lab
 category_slug: lab
 permalink: /lab/
 ---

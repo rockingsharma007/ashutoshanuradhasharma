@@ -22,9 +22,9 @@
   // ---- category palette (matches the CSS gradients) ----
   var COLORS = {
     root: '#8e8e93',
-    lab: '#0071e3',     // The Lab
-    market: '#30b67a',  // The Market
-    studio: '#ff6a3d'   // The Studio
+    lab: '#0071e3',     // Lab
+    market: '#30b67a',  // Market
+    studio: '#ff6a3d'   // Studio
   };
   function nodeColor(n) {
     if (n.type === 'root') return COLORS.root;
@@ -91,6 +91,7 @@
   var DAMP = 0.86;
 
   function tick() {
+    if (alpha <= 0.002) return; // fully settled — freeze, no jitter
     // repulsion (O(n^2) — fine for a personal blog's node count)
     for (var i = 0; i < nodes.length; i++) {
       var a = nodes[i];
@@ -124,9 +125,26 @@
       n.vx *= DAMP; n.vy *= DAMP;
       n.x += n.vx; n.y += n.vy;
     }
-    // cool down, but never fully freeze — keeps the graph gently alive
-    if (alpha > 0.05) alpha *= 0.992;
-    else alpha = 0.05;
+    // cool all the way to a fully-formed, frozen layout;
+    // ambient rotation (below) provides the slow motion instead of jitter.
+    if (alpha > 0.002) alpha *= 0.985;
+    else alpha = 0;
+  }
+
+  // Slow, whole-graph rotation around its centroid — only once settled and
+  // while the visitor isn't interacting, so the shape stays intact and calm.
+  var ROT = 0.0009; // radians per frame (~2 min per revolution)
+  function ambient() {
+    if (alpha > 0.05 || dragging || panning || hoverNode) return;
+    var cx = 0, cy = 0, i;
+    for (i = 0; i < nodes.length; i++) { cx += nodes[i].x; cy += nodes[i].y; }
+    cx /= nodes.length; cy /= nodes.length;
+    var cos = Math.cos(ROT), sin = Math.sin(ROT);
+    for (i = 0; i < nodes.length; i++) {
+      var n = nodes[i], dx = n.x - cx, dy = n.y - cy;
+      n.x = cx + dx * cos - dy * sin;
+      n.y = cy + dx * sin + dy * cos;
+    }
   }
 
   // ---- rendering ----
@@ -196,6 +214,7 @@
 
   function frame() {
     tick();
+    ambient();
     draw();
     requestAnimationFrame(frame);
   }
@@ -254,6 +273,7 @@
       var w = toWorld(p.x, p.y);
       dragging.x = w.x; dragging.y = w.y;
       dragging.vx = 0; dragging.vy = 0;
+      alpha = Math.max(alpha, 0.3); // let neighbors relax around the drag
       moved += Math.abs(p.x - last.x) + Math.abs(p.y - last.y);
     } else if (panning) {
       offsetX += p.x - last.x; offsetY += p.y - last.y;
@@ -313,8 +333,8 @@
 
   // ---- boot ----
   resize();
-  // let the layout breathe for a moment, then frame it nicely
-  for (var s = 0; s < 90; s++) tick();  // warm-up steps (off-screen)
+  // fully settle the layout off-screen so it appears already formed (no jitter)
+  for (var s = 0; s < 500; s++) tick();
   fitToContent();
   canvas.style.cursor = 'grab';
   frame();

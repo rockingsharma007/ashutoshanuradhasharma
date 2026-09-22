@@ -1,6 +1,6 @@
 ---
 layout: category
-title: The Studio
+title: Studio
 category_slug: studio
 permalink: /studio/
 ---

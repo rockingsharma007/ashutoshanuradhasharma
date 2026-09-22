@@ -1,8 +1,8 @@
 # Ashutosh Anuradha Sharma — Personal Blog
 
 An Apple-inspired Jekyll blog hosted on GitHub Pages, organised into three
-categories — **The Lab** (science), **The Market** (commerce), and
-**The Studio** (arts) — each with subsections. The home page shows a live,
+categories — **Lab** (science), **Market** (commerce), and **Studio** (arts) —
+each with subsections. The home page shows a live,
 Obsidian-style graph of everything, generated from your content.
 
 Live at: https://rockingsharma007.github.io/ashutoshanuradhasharma/

@@ -1,7 +1,7 @@
 # The three top-level categories and their subsections.
 # Add or rename subsections here — pages update automatically.
 # NOTE: `slug` is used in URLs and post front matter — changing it changes links.
-- name: The Lab
+- name: Lab
   slug: lab
   blurb: The physical world, the mind, and everything we measure.
   subsections:
@@ -9,7 +9,7 @@
     - Biology
     - Technology
 
-- name: The Market
+- name: Market
   slug: market
   blurb: Markets, money, and the machinery of business.
   subsections:
@@ -17,7 +17,7 @@
     - Investing
     - Startups
 
-- name: The Studio
+- name: Studio
   slug: studio
   blurb: Words, images, sound, and the culture around them.
   subsections:
