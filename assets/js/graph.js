@@ -255,7 +255,9 @@
     ctx.restore();
   }
 
+  var onScreen = true, rafId = null;
   function frame() {
+    rafId = null;
     if (dragging || !settled) {
       var ke = step();
       if (!dragging && ke < FREEZE) {
@@ -267,8 +269,9 @@
       ambient();
     }
     draw();
-    requestAnimationFrame(frame);
+    if (onScreen) rafId = requestAnimationFrame(frame);
   }
+  function startLoop() { if (onScreen && rafId === null) rafId = requestAnimationFrame(frame); }
 
   // ---- picking ----
   function nodeAt(px, py) {
@@ -338,5 +341,14 @@
   resize();
   for (var s = 0; s < 500; s++) step();  // settle off-screen
   fitToContent();
-  frame();
+
+  // Pause the whole simulation while the graph is scrolled out of view — this
+  // frees the main thread so scrolling the rest of the page stays smooth.
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      onScreen = entries[0].isIntersecting;
+      if (onScreen) { settled = false; settleFrames = 0; startLoop(); }
+    }, { threshold: 0.01 }).observe(stage);
+  }
+  startLoop();
 })();

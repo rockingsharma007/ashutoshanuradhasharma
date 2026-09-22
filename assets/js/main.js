@@ -30,7 +30,10 @@
   var current = window.scrollY || window.pageYOffset || 0;
   var target = current;
   var running = false;
-  var EASE = 0.14;
+  var lastT = 0;
+  // Smoothing per 60fps frame; animate() rescales it by real elapsed time so
+  // the feel is identical on 60Hz and 120Hz displays and never drifts.
+  var EASE = 0.2;
 
   function maxScroll() {
     var doc = document.documentElement;
@@ -54,11 +57,20 @@
     return false;
   }
 
-  function animate() {
-    current += (target - current) * EASE;
-    if (Math.abs(target - current) < 0.5) { current = target; running = false; }
+  function animate(now) {
+    if (!lastT) lastT = now;
+    var dt = now - lastT; lastT = now;
+    // Rescale the per-frame step by how long the frame actually took, so a
+    // dropped frame (or a 120Hz display) still eases at the same real speed.
+    var f = 1 - Math.pow(1 - EASE, dt / (1000 / 60));
+    current += (target - current) * f;
+    if (Math.abs(target - current) < 0.5) {
+      current = target; running = false; lastT = 0;
+      window.scrollTo(0, Math.round(current));
+      return;
+    }
     window.scrollTo(0, current);
-    if (running) requestAnimationFrame(animate);
+    requestAnimationFrame(animate);
   }
 
   window.addEventListener('wheel', function (e) {
@@ -79,7 +91,7 @@
     e.preventDefault();
     if (!running) { current = window.scrollY || window.pageYOffset || 0; target = current; }
     target = Math.max(0, Math.min(target + dy, maxScroll()));
-    if (!running) { running = true; requestAnimationFrame(animate); }
+    if (!running) { running = true; lastT = 0; requestAnimationFrame(animate); }
   }, { passive: false });
 
   // Resync when the page is scrolled by other means (keys, scrollbar, anchors).
