@@ -88,9 +88,15 @@ noindex: true
           <button type="button" data-md="code" title="Code">&lt;/&gt;</button>
           <button type="button" data-md="link" title="Link (Ctrl+K)">Link</button>
           <button type="button" data-md="image" title="Image">Image</button>
-          <div class="editor-tabs">
-            <button type="button" data-tab="write" class="active">Write</button>
-            <button type="button" data-tab="preview">Preview</button>
+          <div class="editor-right">
+            <span class="editor-wc" id="editor-wc" aria-hidden="true"></span>
+            <button type="button" class="editor-fs-btn" id="fs-toggle" title="Focus mode — distraction-free writing" aria-pressed="false">
+              <span class="fs-enter">⤢&nbsp;Focus</span><span class="fs-exit">✕&nbsp;Exit</span>
+            </button>
+            <div class="editor-tabs">
+              <button type="button" data-tab="write" class="active">Write</button>
+              <button type="button" data-tab="preview">Preview</button>
+            </div>
           </div>
         </div>
         <textarea id="f-body" class="editor-area" placeholder="Write your post in Markdown…&#10;&#10;## A heading&#10;&#10;A paragraph, with **bold**, _italic_, a [link](https://example.com) and `code`."></textarea>
@@ -105,6 +111,20 @@ noindex: true
     </div>
     <p class="status" id="pub-status" hidden></p>
   </form>
+
+  <!-- ===== Manage posts (revealed after auth) ===== -->
+  <div class="admin-card" id="manage-card" hidden>
+    <div class="composer-head">
+      <h2>Manage posts</h2>
+      <button type="button" class="link-btn" id="refresh-posts">Refresh</button>
+    </div>
+    <p class="admin-help">
+      Deleting removes the Markdown file from your repository. GitHub Pages rebuilds
+      without it in about a minute. This can't be undone from here.
+    </p>
+    <ul class="post-list" id="post-list"></ul>
+    <p class="status" id="manage-status" hidden></p>
+  </div>
 </section>
 
 <script id="admin-cats" type="application/json">
@@ -124,6 +144,7 @@ noindex: true
 
   var $ = function (id) { return document.getElementById(id); };
   var authCard = $('auth-card'), composer = $('composer');
+  var manageCard = $('manage-card'), postList = $('post-list');
 
   // ---- helpers ----
   function utf8ToB64(str) {
@@ -291,10 +312,27 @@ noindex: true
   function estimate() { return Math.max(1, Math.round(wordCount() / 200)); }
   function updateCounts() {
     var w = wordCount(), mins = estimate();
-    $('editor-foot').textContent = w + (w === 1 ? ' word' : ' words') + ' · ~' + mins + ' min read';
+    var txt = w + (w === 1 ? ' word' : ' words') + ' · ~' + mins + ' min read';
+    $('editor-foot').textContent = txt;
+    $('editor-wc').textContent = txt;
     $('f-read').placeholder = mins + ' min read';
   }
   body.addEventListener('input', updateCounts);
+
+  // --- Focus mode: full-viewport, distraction-free writing ---
+  var editorEl = $('editor'), fsToggle = $('fs-toggle');
+  function setFullscreen(on) {
+    editorEl.classList.toggle('editor--fullscreen', on);
+    document.body.classList.toggle('fs-lock', on);
+    fsToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (on && !body.hidden) body.focus();
+  }
+  fsToggle.addEventListener('click', function () {
+    setFullscreen(!editorEl.classList.contains('editor--fullscreen'));
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && editorEl.classList.contains('editor--fullscreen')) setFullscreen(false);
+  });
 
   // --- minimal Markdown -> HTML for the preview only (Jekyll renders the real thing) ---
   function mdToHtml(md) {
@@ -418,9 +456,9 @@ noindex: true
 
   // ---- auth ----
   function showComposer() {
-    authCard.hidden = true; composer.hidden = false;
+    authCard.hidden = true; composer.hidden = false; manageCard.hidden = false;
     $('f-date').value = today();
-    fillCats(); updateFilename(); updateCounts();
+    fillCats(); updateFilename(); updateCounts(); loadPosts();
   }
   function verifyAndEnter() {
     setStatus($('auth-status'), 'Checking access…');
@@ -446,7 +484,7 @@ noindex: true
   $('signout-btn').addEventListener('click', function () {
     try { localStorage.removeItem(KEY); } catch (e) {}
     $('token')._value = ''; $('token').value = '';
-    composer.hidden = true; authCard.hidden = false;
+    composer.hidden = true; manageCard.hidden = true; authCard.hidden = false;
     $('auth-status').hidden = true;
   });
 
@@ -511,6 +549,7 @@ noindex: true
           }
           $('composer').reset();
           $('f-date').value = today(); fillCats(); updateFilename(); updateCounts();
+          loadPosts();   // show the freshly published post in the manage list
         } else if (res.status === 422 || res.status === 409) {
           setStatus($('pub-status'), 'A post with that date + title already exists. Change the title or date.', 'error');
         } else {
@@ -561,6 +600,100 @@ noindex: true
       setStatus($('pub-status'), (err && err.message) || 'Network error.', 'error');
     });
   });
+
+  // ================= Manage / delete posts =================
+  // A readable "Title · date" from a Jekyll filename like 2026-09-25-my-post.md.
+  function humanizeName(name) {
+    var m = /^(\d{4}-\d{2}-\d{2})-(.+)\.(?:md|markdown)$/i.exec(name);
+    if (!m) return { title: name.replace(/\.(?:md|markdown)$/i, ''), date: '' };
+    var title = m[2].replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    return { title: title, date: m[1] };
+  }
+  function delButton(li, actions, f) {
+    var del = document.createElement('button');
+    del.type = 'button'; del.className = 'link-btn danger'; del.textContent = 'Delete';
+    del.addEventListener('click', function () { confirmDelete(li, actions, f); });
+    return del;
+  }
+  function resetActions(li, actions, f) {
+    actions.innerHTML = '';
+    actions.appendChild(delButton(li, actions, f));
+  }
+  // Two-step confirm — a stray click can't remove a published post.
+  function confirmDelete(li, actions, f) {
+    actions.innerHTML = '';
+    var q = document.createElement('span');
+    q.className = 'confirm-q'; q.textContent = 'Delete permanently?';
+    var yes = document.createElement('button');
+    yes.type = 'button'; yes.className = 'link-btn danger'; yes.textContent = 'Delete';
+    var no = document.createElement('button');
+    no.type = 'button'; no.className = 'link-btn'; no.textContent = 'Cancel';
+    no.addEventListener('click', function () { resetActions(li, actions, f); });
+    yes.addEventListener('click', function () {
+      yes.disabled = true; no.disabled = true;
+      setStatus($('manage-status'), 'Deleting…');
+      gh('repos/' + REPO + '/contents/' + encodeURIComponent(f.path).replace(/%2F/g, '/'), {
+        method: 'DELETE',
+        body: { message: 'delete: ' + f.name, sha: f.sha, branch: BRANCH }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (res.ok) {
+          if (li.parentNode) li.parentNode.removeChild(li);
+          setStatus($('manage-status'), 'Deleted. GitHub Pages will rebuild in ~1 minute.', 'ok');
+          if (!postList.querySelector('.post-row')) renderPosts([]);
+        } else if (res.status === 409) {
+          setStatus($('manage-status'), 'That post changed on the server. Refresh and try again.', 'error');
+          resetActions(li, actions, f);
+        } else {
+          setStatus($('manage-status'), 'Could not delete: ' + (res.body.message || res.status), 'error');
+          resetActions(li, actions, f);
+        }
+      }).catch(function (err) {
+        setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
+        resetActions(li, actions, f);
+      });
+    });
+    actions.appendChild(q); actions.appendChild(yes); actions.appendChild(no);
+  }
+  function renderPosts(files) {
+    postList.innerHTML = '';
+    var posts = (files || []).filter(function (f) {
+      return f.type === 'file' && /\.(?:md|markdown)$/i.test(f.name);
+    }).sort(function (a, b) { return a.name < b.name ? 1 : (a.name > b.name ? -1 : 0); });
+    if (!posts.length) {
+      var empty = document.createElement('li');
+      empty.className = 'post-empty'; empty.textContent = 'No posts yet.';
+      postList.appendChild(empty);
+      return;
+    }
+    posts.forEach(function (f) {
+      var info = humanizeName(f.name);
+      var li = document.createElement('li'); li.className = 'post-row';
+      var main = document.createElement('span'); main.className = 'post-row-main';
+      var t = document.createElement('span'); t.className = 'post-row-title'; t.textContent = info.title;
+      var d = document.createElement('span'); d.className = 'post-row-date'; d.textContent = info.date || f.name;
+      main.appendChild(t); main.appendChild(d);
+      var actions = document.createElement('span'); actions.className = 'post-row-actions';
+      actions.appendChild(delButton(li, actions, f));
+      li.appendChild(main); li.appendChild(actions);
+      postList.appendChild(li);
+    });
+  }
+  function loadPosts() {
+    setStatus($('manage-status'), 'Loading posts…');
+    gh('repos/' + REPO + '/contents/_posts?ref=' + encodeURIComponent(BRANCH)).then(function (r) {
+      if (r.status === 404) return [];   // no _posts dir yet
+      if (!r.ok) throw new Error('Could not list posts (' + r.status + ').');
+      return r.json();
+    }).then(function (files) {
+      renderPosts(Array.isArray(files) ? files : []);
+      $('manage-status').hidden = true;
+    }).catch(function (err) {
+      setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
+    });
+  }
+  $('refresh-posts').addEventListener('click', loadPosts);
 
   // ---- restore remembered token ----
   (function restore() {
