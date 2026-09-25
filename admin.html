@@ -54,6 +54,7 @@ noindex: true
       <div class="field">
         <label for="f-sub">Subsection</label>
         <select id="f-sub"></select>
+        <input type="text" id="f-sub-new" hidden placeholder="New subcategory name" maxlength="40" autocomplete="off">
       </div>
       <div class="field">
         <label for="f-date">Date</label>
@@ -129,6 +130,60 @@ noindex: true
     var bytes = new TextEncoder().encode(str), bin = '';
     for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     return btoa(bin);
+  }
+  function b64ToUtf8(b64) {
+    var bin = atob((b64 || '').replace(/\s/g, ''));
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  // Clean + validate a new subcategory name. Returns the normalized string, or
+  // null if it isn't safe as both a YAML list item and a front-matter value.
+  function normalizeSub(raw) {
+    var s = (raw || '').trim().replace(/\s+/g, ' ');
+    if (s.length > 40) return null;
+    if (!/^[A-Za-z0-9][A-Za-z0-9 &-]*$/.test(s)) return null;
+    return s;
+  }
+  // Pure: insert `newSub` under the given category's `subsections:` list in the
+  // raw categories.yml text. Returns {status, text?, canonical?} without any
+  // DOM access, so it can be unit-tested in isolation.
+  function insertSubsection(text, targetSlug, newSub) {
+    var eol = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+    var lines = text.split(/\r?\n/);
+    var slugRe = /^\s*slug:\s*(\S+)\s*$/, subsRe = /^(\s*)subsections:\s*$/;
+    var itemRe = /^(\s+)-\s+(.+?)\s*$/, topRe = /^-\s/;
+    var i, slugIdx = -1;
+    for (i = 0; i < lines.length; i++) {
+      var sm = slugRe.exec(lines[i]);
+      if (sm && sm[1] === targetSlug) { slugIdx = i; break; }
+    }
+    if (slugIdx === -1) return { status: 'error-slug' };
+
+    var subsIdx = -1, subsIndent = '';
+    for (i = slugIdx + 1; i < lines.length; i++) {
+      if (topRe.test(lines[i])) break;               // reached the next category
+      var bm = subsRe.exec(lines[i]);
+      if (bm) { subsIdx = i; subsIndent = bm[1]; break; }
+    }
+    if (subsIdx === -1) return { status: 'error-block' };
+
+    var itemIndent = null, lastItemIdx = subsIdx, existing = [];
+    for (i = subsIdx + 1; i < lines.length; i++) {
+      var im = itemRe.exec(lines[i]);
+      if (!im) break;
+      if (itemIndent === null) itemIndent = im[1];
+      existing.push(im[2].trim());
+      lastItemIdx = i;
+    }
+    if (itemIndent === null) itemIndent = subsIndent + '  ';
+
+    var lc = newSub.toLowerCase();
+    for (i = 0; i < existing.length; i++) {
+      if (existing[i].toLowerCase() === lc) return { status: 'exists', canonical: existing[i] };
+    }
+    lines.splice(lastItemIdx + 1, 0, itemIndent + '- ' + newSub);
+    return { status: 'inserted', text: lines.join(eol) };
   }
   function slugify(s) {
     return s.toLowerCase().trim()
@@ -306,19 +361,54 @@ noindex: true
   }
 
   // ---- category / subsection selects ----
+  function escOpt(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function getCatBySlug(slug) {
+    return CATS.filter(function (x) { return x.slug === slug; })[0];
+  }
   function fillCats() {
-    var cat = $('f-cat'), sub = $('f-sub');
-    cat.innerHTML = CATS.map(function (c) {
-      return '<option value="' + c.slug + '">' + c.name + '</option>';
+    $('f-cat').innerHTML = CATS.map(function (c) {
+      return '<option value="' + escOpt(c.slug) + '">' + escOpt(c.name) + '</option>';
     }).join('');
-    function fillSubs() {
-      var c = CATS.filter(function (x) { return x.slug === cat.value; })[0];
-      sub.innerHTML = (c ? c.subs : []).map(function (s) {
-        return '<option value="' + s + '">' + s + '</option>';
-      }).join('');
-    }
-    cat.addEventListener('change', fillSubs);
     fillSubs();
+  }
+  function fillSubs() {
+    var c = getCatBySlug($('f-cat').value);
+    var opts = ((c && c.subs) || []).map(function (s) {
+      return '<option value="' + escOpt(s) + '">' + escOpt(s) + '</option>';
+    });
+    opts.push('<option value="__new__">+ New subcategory…</option>');
+    $('f-sub').innerHTML = opts.join('');
+    hideNewSub();
+  }
+  function hideNewSub() { var el = $('f-sub-new'); el.hidden = true; el.value = ''; }
+  function toggleNewSub() {
+    if ($('f-sub').value === '__new__') { $('f-sub-new').hidden = false; $('f-sub-new').focus(); }
+    else { hideNewSub(); }
+  }
+  // The subcategory string the post will actually carry. Returns null only when
+  // "+ New…" is selected but the typed name is invalid. A typed name that
+  // matches an existing sub (case-insensitively) resolves to its canonical
+  // casing, so the Liquid `where` match still lands.
+  function effectiveSub() {
+    var sel = $('f-sub');
+    if (sel.value !== '__new__') return sel.value;
+    var norm = normalizeSub($('f-sub-new').value);
+    if (!norm) return null;
+    var c = getCatBySlug($('f-cat').value), subs = (c && c.subs) || [], lc = norm.toLowerCase();
+    for (var i = 0; i < subs.length; i++) if (subs[i].toLowerCase() === lc) return subs[i];
+    return norm;
+  }
+  // True only when a genuinely new subcategory needs to be written to the YAML.
+  function isNewSub() {
+    if ($('f-sub').value !== '__new__') return false;
+    var norm = normalizeSub($('f-sub-new').value);
+    if (!norm) return false;
+    var c = getCatBySlug($('f-cat').value), subs = (c && c.subs) || [], lc = norm.toLowerCase();
+    for (var i = 0; i < subs.length; i++) if (subs[i].toLowerCase() === lc) return false;
+    return true;
   }
 
   function updateFilename() {
@@ -362,58 +452,113 @@ noindex: true
 
   $('f-title').addEventListener('input', updateFilename);
   $('f-date').addEventListener('input', updateFilename);
+  $('f-cat').addEventListener('change', fillSubs);
+  $('f-sub').addEventListener('change', toggleNewSub);
 
   // ---- publish ----
   $('composer').addEventListener('submit', function (e) {
     e.preventDefault();
     var title = $('f-title').value.trim();
     if (!title) { setStatus($('pub-status'), 'A title is required.', 'error'); return; }
+
+    var catSlug = $('f-cat').value;
+    var sub = effectiveSub();
+    if (sub === null) {
+      setStatus($('pub-status'), 'Subcategory: letters, numbers, spaces, hyphens and & only, must start with a letter or number, 40 characters max.', 'error');
+      return;
+    }
+    var makeNew = isNewSub();
+
     var date = $('f-date').value || today();
     var slug = slugify(title);
     var path = '_posts/' + date + '-' + slug + '.md';
     var readTime = $('f-read').value.trim() || (estimate() + ' min read');
 
-    var fm = '---\n' +
-      'title: "' + title.replace(/"/g, '\\"') + '"\n' +
-      'date: ' + date + '\n' +
-      'category: ' + $('f-cat').value + '\n' +
-      'subcategory: ' + $('f-sub').value + '\n' +
-      (($('f-excerpt').value.trim()) ? 'excerpt: "' + $('f-excerpt').value.trim().replace(/"/g, '\\"') + '"\n' : '') +
-      'read_time: "' + readTime.replace(/"/g, '\\"') + '"\n' +
-      '---\n\n' + body.value.trim() + '\n';
+    // Built at PUT time so it reflects `sub` even after it's reassigned to an
+    // existing subcategory's canonical casing.
+    function buildPost() {
+      return '---\n' +
+        'title: "' + title.replace(/"/g, '\\"') + '"\n' +
+        'date: ' + date + '\n' +
+        'category: ' + catSlug + '\n' +
+        'subcategory: "' + sub.replace(/"/g, '\\"') + '"\n' +
+        (($('f-excerpt').value.trim()) ? 'excerpt: "' + $('f-excerpt').value.trim().replace(/"/g, '\\"') + '"\n' : '') +
+        'read_time: "' + readTime.replace(/"/g, '\\"') + '"\n' +
+        '---\n\n' + body.value.trim() + '\n';
+    }
+    function done() { $('publish-btn').disabled = false; }
 
-    setStatus($('pub-status'), 'Publishing…');
+    // PUT the post. Resolves once the status message has been set.
+    function publishPost() {
+      return gh('repos/' + REPO + '/contents/' + encodeURIComponent(path).replace(/%2F/g, '/'), {
+        method: 'PUT',
+        body: { message: 'post: ' + title, content: utf8ToB64(buildPost()), branch: BRANCH }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        done();
+        if (res.ok) {
+          if (makeNew) {   // reflect the new sub in-memory so this session sees it
+            var c = getCatBySlug(catSlug);
+            if (c) { c.subs = c.subs || []; c.subs.push(sub); }
+          }
+          var url = res.body.commit && res.body.commit.html_url;
+          setStatus($('pub-status'), 'Published! GitHub Pages will rebuild in ~1 minute.', 'ok');
+          if (url) {
+            var a = document.createElement('a');
+            a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' View commit →';
+            $('pub-status').appendChild(a);
+          }
+          $('composer').reset();
+          $('f-date').value = today(); fillCats(); updateFilename(); updateCounts();
+        } else if (res.status === 422 || res.status === 409) {
+          setStatus($('pub-status'), 'A post with that date + title already exists. Change the title or date.', 'error');
+        } else {
+          setStatus($('pub-status'), 'Failed: ' + (res.body.message || res.status), 'error');
+        }
+      });
+    }
+
+    var CATS_PATH = 'repos/' + REPO + '/contents/_data/categories.yml';
+
+    // YAML-first: register the new subcategory in _data/categories.yml, then PUT
+    // the post. The only inconsistency this can leave is a registered-but-empty
+    // subsection (harmless); it never orphans a post.
+    function registerSubThenPublish(retry) {
+      return gh(CATS_PATH + '?ref=' + encodeURIComponent(BRANCH)).then(function (r) {
+        if (!r.ok) throw new Error('Could not read categories.yml (' + r.status + ').');
+        return r.json();
+      }).then(function (file) {
+        var out = insertSubsection(b64ToUtf8(file.content), catSlug, sub);
+        if (out.status === 'exists') {   // stale dropdown — it's already there
+          makeNew = false; sub = out.canonical;
+          return publishPost();
+        }
+        if (out.status !== 'inserted') {
+          throw new Error("Couldn't safely update categories.yml — nothing was published.");
+        }
+        return gh(CATS_PATH, {
+          method: 'PUT',
+          body: {
+            message: 'data: add subcategory "' + sub + '" to ' + catSlug,
+            content: utf8ToB64(out.text), sha: file.sha, branch: BRANCH
+          }
+        }).then(function (r) {
+          if (r.ok) return publishPost();
+          if ((r.status === 409 || r.status === 422) && !retry) return registerSubThenPublish(true);
+          return r.json().then(function (j) {
+            throw new Error('Could not save categories.yml: ' + (j.message || r.status));
+          });
+        });
+      });
+    }
+
+    setStatus($('pub-status'), makeNew ? 'Adding subcategory & publishing…' : 'Publishing…');
     $('publish-btn').disabled = true;
 
-    gh('repos/' + REPO + '/contents/' + encodeURIComponent(path).replace(/%2F/g, '/'), {
-      method: 'PUT',
-      body: {
-        message: 'post: ' + title,
-        content: utf8ToB64(fm),
-        branch: BRANCH
-      }
-    }).then(function (r) {
-      return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
-    }).then(function (res) {
-      $('publish-btn').disabled = false;
-      if (res.ok) {
-        var url = res.body.commit && res.body.commit.html_url;
-        setStatus($('pub-status'), 'Published! GitHub Pages will rebuild in ~1 minute.', 'ok');
-        if (url) {
-          var a = document.createElement('a');
-          a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' View commit →';
-          $('pub-status').appendChild(a);
-        }
-        $('composer').reset();
-        $('f-date').value = today(); fillCats(); updateFilename(); updateCounts();
-      } else if (res.status === 422 || res.status === 409) {
-        setStatus($('pub-status'), 'A post with that date + title already exists. Change the title or date.', 'error');
-      } else {
-        setStatus($('pub-status'), 'Failed: ' + (res.body.message || res.status), 'error');
-      }
-    }).catch(function (err) {
-      $('publish-btn').disabled = false;
-      setStatus($('pub-status'), 'Network error: ' + err.message, 'error');
+    (makeNew ? registerSubThenPublish(false) : publishPost()).catch(function (err) {
+      done();
+      setStatus($('pub-status'), (err && err.message) || 'Network error.', 'error');
     });
   });
 
