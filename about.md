@@ -19,8 +19,10 @@ permalink: /about/
     <p>
       <strong>Lab</strong> — the physical world and the mind, and the pleasure
       of finding out how a thing actually works.
+
       <strong>Market</strong> — money, incentives, and the quiet machinery that
       decides what gets built and what gets bought.
+      
       <strong>Studio</strong> — words, images, and sound, and the craft of
       making something worth keeping.
     </p>
