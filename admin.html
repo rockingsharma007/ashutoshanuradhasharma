@@ -4,7 +4,7 @@ title: New Post
 permalink: /admin/
 noindex: true
 ---
-<section class="wrap wrap-narrow admin">
+<section class="wrap admin">
   <p class="eyebrow">Editor</p>
   <h1 class="display">Write a post</h1>
   <p class="lead">
@@ -37,8 +37,11 @@ noindex: true
   <!-- ===== Composer (revealed after auth) ===== -->
   <form class="admin-card" id="composer" hidden>
     <div class="composer-head">
-      <h2>New post</h2>
-      <button type="button" class="link-btn" id="signout-btn">Sign out</button>
+      <h2 id="composer-title">New post</h2>
+      <div class="composer-head-actions">
+        <button type="button" class="link-btn" id="cancel-edit" hidden>Cancel edit</button>
+        <button type="button" class="link-btn" id="signout-btn">Sign out</button>
+      </div>
     </div>
 
     <div class="field">
@@ -119,10 +122,12 @@ noindex: true
       <button type="button" class="link-btn" id="refresh-posts">Refresh</button>
     </div>
     <p class="admin-help">
-      Deleting removes the Markdown file from your repository. GitHub Pages rebuilds
-      without it in about a minute. This can't be undone from here.
+      Your notes, filed by category and subsection. Hover a folder to peek inside,
+      or click it to keep it open. <strong>Edit</strong> loads a note back into the
+      editor above; <strong>Delete</strong> removes its Markdown file. GitHub Pages
+      rebuilds in about a minute. Deletes can't be undone from here.
     </p>
-    <ul class="post-list" id="post-list"></ul>
+    <div class="post-tree" id="post-list"></div>
     <p class="status" id="manage-status" hidden></p>
   </div>
 </section>
@@ -139,6 +144,7 @@ noindex: true
 (function () {
   var REPO = {{ site.repository | jsonify }};
   var BRANCH = {{ site.branch | default: 'main' | jsonify }};
+  var BASEURL = {{ site.baseurl | default: '' | jsonify }};
   var CATS = JSON.parse(document.getElementById('admin-cats').textContent);
   var KEY = 'gh_pat';
 
@@ -228,6 +234,50 @@ noindex: true
     });
   }
   function getToken() { return $('token')._value || ''; }
+  // Contents API path for a repo file, with '/' kept readable (not %2F-escaped).
+  function ghPath(p) {
+    return 'repos/' + REPO + '/contents/' + encodeURIComponent(p).replace(/%2F/g, '/');
+  }
+  // Resolve a fetch Response to { ok, status, body } with the parsed JSON body.
+  function resJson(r) {
+    return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+  }
+  // Split a post file into { data, body }. Handles the simple scalar front matter
+  // this editor writes (quoted or bare); multi-line YAML values aren't expected.
+  function parseFrontMatter(text) {
+    text = (text || '').replace(/\r\n/g, '\n');
+    var m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+    if (!m) return { data: {}, body: text.replace(/^\n+/, '') };
+    var data = {};
+    m[1].split('\n').forEach(function (line) {
+      var kv = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+      if (!kv) return;
+      var val = kv[2].trim();
+      if (/^".*"$/.test(val)) val = val.slice(1, -1).replace(/\\"/g, '"');
+      else if (/^'.*'$/.test(val)) val = val.slice(1, -1).replace(/''/g, "'");
+      data[kv[1]] = val;
+    });
+    return { data: data, body: text.slice(m[0].length).replace(/^\n+/, '').replace(/\s+$/, '') };
+  }
+  // Run `fn` over items with at most `limit` in flight; resolves to results[].
+  function mapLimit(items, limit, fn) {
+    return new Promise(function (resolve) {
+      var results = new Array(items.length), idx = 0, done = 0;
+      if (!items.length) return resolve(results);
+      function launch() {
+        while (idx < items.length && (idx - done) < limit) {
+          (function (i) {
+            Promise.resolve(fn(items[i], i)).then(function (r) { results[i] = r; },
+              function () { results[i] = null; }).then(function () {
+                done++;
+                if (done === items.length) resolve(results); else launch();
+              });
+          })(idx++);
+        }
+      }
+      launch();
+    });
+  }
 
   // ================= Markdown editor =================
   var body = $('f-body');
@@ -286,22 +336,35 @@ noindex: true
     else if (k === 'k') { e.preventDefault(); applyMd('link'); }
   });
 
-  // --- Write / Preview tabs ---
+  // --- Write / Preview tabs (side-by-side in focus mode) ---
   var preview = $('md-preview');
-  Array.prototype.forEach.call(document.querySelectorAll('.editor-tabs [data-tab]'), function (btn) {
-    btn.addEventListener('click', function () {
-      var tab = btn.getAttribute('data-tab');
-      Array.prototype.forEach.call(document.querySelectorAll('.editor-tabs [data-tab]'), function (b) {
-        b.classList.toggle('active', b === btn);
-      });
-      if (tab === 'preview') {
-        var html = mdToHtml(body.value);
-        preview.innerHTML = html || '<p class="md-empty">Nothing to preview yet.</p>';
-        preview.hidden = false; body.hidden = true;
-      } else {
-        preview.hidden = true; body.hidden = false; body.focus();
-      }
+  var editorEl = $('editor');
+  var activeTab = 'write';
+  function isFullscreen() { return editorEl.classList.contains('editor--fullscreen'); }
+  function renderPreview() {
+    var html = mdToHtml(body.value);
+    preview.innerHTML = html || '<p class="md-empty">Nothing to preview yet.</p>';
+  }
+  // Reconcile the panes from the current tab. Preview always sits beside the
+  // editor (split, both live) — inline and in focus mode alike; on narrow screens
+  // the CSS stacks or swaps them. Write mode shows the editor alone.
+  function syncPanes() {
+    var previewing = activeTab === 'preview';
+    editorEl.classList.toggle('editor--split', previewing);
+    if (previewing) renderPreview();
+    preview.hidden = !previewing;
+    body.hidden = false;
+  }
+  function setTab(tab) {
+    activeTab = tab;
+    Array.prototype.forEach.call(document.querySelectorAll('.editor-tabs [data-tab]'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tab);
     });
+    syncPanes();
+    if (tab === 'write' && !body.hidden) body.focus();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.editor-tabs [data-tab]'), function (btn) {
+    btn.addEventListener('click', function () { setTab(btn.getAttribute('data-tab')); });
   });
 
   // --- word count + read-time estimate ---
@@ -317,21 +380,24 @@ noindex: true
     $('editor-wc').textContent = txt;
     $('f-read').placeholder = mins + ' min read';
   }
-  body.addEventListener('input', updateCounts);
+  body.addEventListener('input', function () {
+    updateCounts();
+    if (activeTab === 'preview') renderPreview();   // keep the side-by-side preview live
+  });
 
   // --- Focus mode: full-viewport, distraction-free writing ---
-  var editorEl = $('editor'), fsToggle = $('fs-toggle');
+  var fsToggle = $('fs-toggle');
   function setFullscreen(on) {
     editorEl.classList.toggle('editor--fullscreen', on);
+    document.documentElement.classList.toggle('fs-lock', on);
     document.body.classList.toggle('fs-lock', on);
     fsToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    syncPanes();                                    // enter/leave split as needed
     if (on && !body.hidden) body.focus();
   }
-  fsToggle.addEventListener('click', function () {
-    setFullscreen(!editorEl.classList.contains('editor--fullscreen'));
-  });
+  fsToggle.addEventListener('click', function () { setFullscreen(!isFullscreen()); });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && editorEl.classList.contains('editor--fullscreen')) setFullscreen(false);
+    if (e.key === 'Escape' && isFullscreen()) setFullscreen(false);
   });
 
   // --- minimal Markdown -> HTML for the preview only (Jekyll renders the real thing) ---
@@ -493,6 +559,68 @@ noindex: true
   $('f-cat').addEventListener('change', fillSubs);
   $('f-sub').addEventListener('change', toggleNewSub);
 
+  // ---- edit mode: load an existing post back into the composer ----
+  var editing = null;   // { path, sha } while updating an existing post, else null
+  function enterEditMode(path, sha) {
+    editing = { path: path, sha: sha };
+    $('composer-title').textContent = 'Edit post';
+    $('publish-btn').textContent = 'Update post';
+    $('cancel-edit').hidden = false;
+  }
+  function exitEditMode() {
+    editing = null;
+    $('composer-title').textContent = 'New post';
+    $('publish-btn').textContent = 'Publish';
+    $('cancel-edit').hidden = true;
+  }
+  function resetComposer() {
+    $('composer').reset();
+    $('f-date').value = today();
+    fillCats(); updateFilename(); updateCounts();
+  }
+  // Select a subcategory, adding a one-off option when the post carries a value
+  // that isn't in the dropdown (e.g. an orphaned sub) so Update preserves it.
+  function selectSub(value) {
+    var sel = $('f-sub');
+    if (!value) { hideNewSub(); return; }
+    var found = false;
+    Array.prototype.forEach.call(sel.options, function (o) { if (o.value === value) found = true; });
+    if (!found) {
+      var opt = document.createElement('option');
+      opt.value = value; opt.textContent = value;
+      sel.insertBefore(opt, sel.options[sel.options.length - 1]);   // before "+ New…"
+    }
+    sel.value = value;
+    hideNewSub();
+  }
+  function startEdit(f) {
+    setStatus($('manage-status'), 'Loading "' + f.name + '"…');
+    gh(ghPath(f.path) + '?ref=' + encodeURIComponent(BRANCH)).then(resJson).then(function (res) {
+      if (!res.ok) throw new Error('Could not load the post (' + res.status + ').');
+      var parsed = parseFrontMatter(b64ToUtf8(res.body.content));
+      var d = parsed.data, info = humanizeName(f.name);
+      $('f-title').value = d.title || info.title;
+      $('f-date').value = (d.date || info.date || today()).slice(0, 10);
+      if (d.category) $('f-cat').value = d.category;
+      fillSubs();
+      selectSub(d.subcategory || '');
+      $('f-excerpt').value = d.excerpt || '';
+      $('f-read').value = d.read_time || '';
+      body.value = parsed.body;
+      updateCounts(); updateFilename();
+      enterEditMode(f.path, res.body.sha);
+      $('manage-status').hidden = true;
+      setTab('write');
+      composer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      $('f-title').focus();
+    }).catch(function (err) {
+      setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
+    });
+  }
+  $('cancel-edit').addEventListener('click', function () {
+    exitEditMode(); resetComposer(); $('pub-status').hidden = true;
+  });
+
   // ---- publish ----
   $('composer').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -526,35 +654,58 @@ noindex: true
     }
     function done() { $('publish-btn').disabled = false; }
 
-    // PUT the post. Resolves once the status message has been set.
-    function publishPost() {
-      return gh('repos/' + REPO + '/contents/' + encodeURIComponent(path).replace(/%2F/g, '/'), {
-        method: 'PUT',
-        body: { message: 'post: ' + title, content: utf8ToB64(buildPost()), branch: BRANCH }
-      }).then(function (r) {
-        return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
-      }).then(function (res) {
-        done();
-        if (res.ok) {
+    // Write the post: create a new file, update it in place by sha (edit, same
+    // filename), or — when the title/date changed the filename — create the new
+    // file and delete the old one (a rename). Resolves once a status is set.
+    function writePost() {
+      var isEdit = !!editing;
+      var sameFile = isEdit && editing.path === path;
+      var putBody = {
+        message: (isEdit ? 'update: ' : 'post: ') + title,
+        content: utf8ToB64(buildPost()), branch: BRANCH
+      };
+      if (sameFile) putBody.sha = editing.sha;   // overwrite the existing file
+      return gh(ghPath(path), { method: 'PUT', body: putBody }).then(resJson).then(function (res) {
+        if (!res.ok) {
+          done();
+          if (res.status === 422 || res.status === 409) {
+            setStatus($('pub-status'), (isEdit && sameFile)
+              ? 'This post changed on the server since you opened it. Refresh the list and edit again.'
+              : 'A post with that date + title already exists. Change the title or date.', 'error');
+          } else {
+            setStatus($('pub-status'), 'Failed: ' + (res.body.message || res.status), 'error');
+          }
+          return;
+        }
+        // Renamed: the new file now exists; remove the old one. Best-effort — if
+        // it fails, both remain and we say so rather than silently lose a copy.
+        var cleanup = (isEdit && !sameFile)
+          ? gh(ghPath(editing.path), { method: 'DELETE',
+              body: { message: 'delete (renamed): ' + editing.path, sha: editing.sha, branch: BRANCH } })
+              .then(function (r) { return r.ok; }, function () { return false; })
+          : Promise.resolve(true);
+        return cleanup.then(function (oldRemoved) {
+          done();
           if (makeNew) {   // reflect the new sub in-memory so this session sees it
             var c = getCatBySlug(catSlug);
             if (c) { c.subs = c.subs || []; c.subs.push(sub); }
           }
+          var orphaned = isEdit && !sameFile && !oldRemoved;
+          var msg = orphaned
+            ? 'Updated — but the old file (' + editing.path + ') could not be removed. Delete it from the list below.'
+            : (isEdit ? 'Updated! GitHub Pages will rebuild in ~1 minute.'
+                      : 'Published! GitHub Pages will rebuild in ~1 minute.');
+          setStatus($('pub-status'), msg, orphaned ? 'error' : 'ok');
           var url = res.body.commit && res.body.commit.html_url;
-          setStatus($('pub-status'), 'Published! GitHub Pages will rebuild in ~1 minute.', 'ok');
           if (url) {
             var a = document.createElement('a');
             a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = ' View commit →';
             $('pub-status').appendChild(a);
           }
-          $('composer').reset();
-          $('f-date').value = today(); fillCats(); updateFilename(); updateCounts();
-          loadPosts();   // show the freshly published post in the manage list
-        } else if (res.status === 422 || res.status === 409) {
-          setStatus($('pub-status'), 'A post with that date + title already exists. Change the title or date.', 'error');
-        } else {
-          setStatus($('pub-status'), 'Failed: ' + (res.body.message || res.status), 'error');
-        }
+          exitEditMode();
+          resetComposer();
+          loadPosts();   // refresh the tree with the change
+        });
       });
     }
 
@@ -571,7 +722,7 @@ noindex: true
         var out = insertSubsection(b64ToUtf8(file.content), catSlug, sub);
         if (out.status === 'exists') {   // stale dropdown — it's already there
           makeNew = false; sub = out.canonical;
-          return publishPost();
+          return writePost();
         }
         if (out.status !== 'inserted') {
           throw new Error("Couldn't safely update categories.yml — nothing was published.");
@@ -583,7 +734,7 @@ noindex: true
             content: utf8ToB64(out.text), sha: file.sha, branch: BRANCH
           }
         }).then(function (r) {
-          if (r.ok) return publishPost();
+          if (r.ok) return writePost();
           if ((r.status === 409 || r.status === 422) && !retry) return registerSubThenPublish(true);
           return r.json().then(function (j) {
             throw new Error('Could not save categories.yml: ' + (j.message || r.status));
@@ -592,93 +743,185 @@ noindex: true
       });
     }
 
-    setStatus($('pub-status'), makeNew ? 'Adding subcategory & publishing…' : 'Publishing…');
+    setStatus($('pub-status'), makeNew ? 'Adding subcategory & saving…' : (editing ? 'Updating…' : 'Publishing…'));
     $('publish-btn').disabled = true;
 
-    (makeNew ? registerSubThenPublish(false) : publishPost()).catch(function (err) {
+    (makeNew ? registerSubThenPublish(false) : writePost()).catch(function (err) {
       done();
       setStatus($('pub-status'), (err && err.message) || 'Network error.', 'error');
     });
   });
 
-  // ================= Manage / delete posts =================
-  // A readable "Title · date" from a Jekyll filename like 2026-09-25-my-post.md.
+  // ================= Manage posts: VS Code-style explorer tree =================
+  // A readable "Title" + date from a Jekyll filename like 2026-09-25-my-post.md.
   function humanizeName(name) {
     var m = /^(\d{4}-\d{2}-\d{2})-(.+)\.(?:md|markdown)$/i.exec(name);
     if (!m) return { title: name.replace(/\.(?:md|markdown)$/i, ''), date: '' };
     var title = m[2].replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
     return { title: title, date: m[1] };
   }
-  function delButton(li, actions, f) {
+  function postSlug(name) {
+    var m = /^\d{4}-\d{2}-\d{2}-(.+)\.(?:md|markdown)$/i.exec(name);
+    return m ? m[1] : name.replace(/\.(?:md|markdown)$/i, '');
+  }
+  // Published URL from metadata — permalink is /:categories/:year/:month/:day/:title/.
+  function postUrl(m) {
+    var p = (m.date || '').split('-');
+    if (!m.category || p.length < 3) return '';
+    return BASEURL + '/' + m.category + '/' + p[0] + '/' + p[1] + '/' + p[2] + '/' + postSlug(m.name) + '/';
+  }
+
+  // --- fetch each post's front matter so it can be filed by category/subsection ---
+  function fetchMeta(f) {
+    var info = humanizeName(f.name);
+    var meta = { name: f.name, path: f.path, sha: f.sha, title: info.title, date: info.date, category: '', subcategory: '' };
+    return gh(ghPath(f.path) + '?ref=' + encodeURIComponent(BRANCH))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (j && j.content) {
+          var d = parseFrontMatter(b64ToUtf8(j.content)).data;
+          meta.sha = j.sha;
+          if (d.title) meta.title = d.title;
+          if (d.date) meta.date = d.date.slice(0, 10);
+          meta.category = d.category || '';
+          meta.subcategory = d.subcategory || '';
+        }
+        return meta;
+      }, function () { return meta; });
+  }
+
+  // --- group metas into Category → Subsection → notes ---
+  function buildTree(metas) {
+    function newCat(slug, name, subNames) {
+      var cat = { slug: slug, name: name, groups: [], index: {}, misc: null };
+      (subNames || []).forEach(function (s) {
+        var g = { name: s, posts: [] }; cat.groups.push(g); cat.index[s.toLowerCase()] = g;
+      });
+      return cat;
+    }
+    var cats = CATS.map(function (c) { return newCat(c.slug, c.name, c.subs || []); });
+    var unfiled = newCat('', 'Unfiled', []);
+    function findCat(slug) { for (var i = 0; i < cats.length; i++) if (cats[i].slug === slug) return cats[i]; return null; }
+    function groupFor(cat, subName) {
+      if (subName) {
+        var lc = subName.toLowerCase();
+        if (cat.index[lc]) return cat.index[lc];
+        var g = { name: subName, posts: [] }; cat.index[lc] = g; cat.groups.push(g); // unregistered sub
+        return g;
+      }
+      if (!cat.misc) { cat.misc = { name: 'Uncategorized', posts: [] }; cat.groups.push(cat.misc); }
+      return cat.misc;
+    }
+    metas.forEach(function (m) {
+      var cat = findCat(m.category);
+      if (cat) groupFor(cat, m.subcategory).posts.push(m);
+      else groupFor(unfiled, m.category || m.subcategory || '').posts.push(m);
+    });
+    return cats.concat([unfiled]);
+  }
+  function countPosts(cat) {
+    var n = 0; cat.groups.forEach(function (g) { n += g.posts.length; }); return n;
+  }
+
+  // --- delete (two-step confirm, inline on the note row) ---
+  function delButton(li, actions, m) {
     var del = document.createElement('button');
-    del.type = 'button'; del.className = 'link-btn danger'; del.textContent = 'Delete';
-    del.addEventListener('click', function () { confirmDelete(li, actions, f); });
+    del.type = 'button'; del.className = 'link-btn danger tree-act'; del.textContent = 'Delete';
+    del.addEventListener('click', function (e) { e.stopPropagation(); confirmDelete(li, actions, m); });
     return del;
   }
-  function resetActions(li, actions, f) {
+  function resetActions(li, actions, m) {
     actions.innerHTML = '';
-    actions.appendChild(delButton(li, actions, f));
+    var edit = document.createElement('button');
+    edit.type = 'button'; edit.className = 'link-btn tree-act'; edit.textContent = 'Edit';
+    edit.addEventListener('click', function (e) { e.stopPropagation(); startEdit(m); });
+    actions.appendChild(edit);
+    actions.appendChild(delButton(li, actions, m));
   }
-  // Two-step confirm — a stray click can't remove a published post.
-  function confirmDelete(li, actions, f) {
+  function confirmDelete(li, actions, m) {
     actions.innerHTML = '';
-    var q = document.createElement('span');
-    q.className = 'confirm-q'; q.textContent = 'Delete permanently?';
-    var yes = document.createElement('button');
-    yes.type = 'button'; yes.className = 'link-btn danger'; yes.textContent = 'Delete';
-    var no = document.createElement('button');
-    no.type = 'button'; no.className = 'link-btn'; no.textContent = 'Cancel';
-    no.addEventListener('click', function () { resetActions(li, actions, f); });
-    yes.addEventListener('click', function () {
-      yes.disabled = true; no.disabled = true;
+    var q = document.createElement('span'); q.className = 'confirm-q'; q.textContent = 'Delete?';
+    var yes = document.createElement('button'); yes.type = 'button'; yes.className = 'link-btn danger tree-act'; yes.textContent = 'Delete';
+    var no = document.createElement('button'); no.type = 'button'; no.className = 'link-btn tree-act'; no.textContent = 'Cancel';
+    no.addEventListener('click', function (e) { e.stopPropagation(); resetActions(li, actions, m); });
+    yes.addEventListener('click', function (e) {
+      e.stopPropagation(); yes.disabled = true; no.disabled = true;
       setStatus($('manage-status'), 'Deleting…');
-      gh('repos/' + REPO + '/contents/' + encodeURIComponent(f.path).replace(/%2F/g, '/'), {
-        method: 'DELETE',
-        body: { message: 'delete: ' + f.name, sha: f.sha, branch: BRANCH }
-      }).then(function (r) {
-        return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
-      }).then(function (res) {
-        if (res.ok) {
-          if (li.parentNode) li.parentNode.removeChild(li);
-          setStatus($('manage-status'), 'Deleted. GitHub Pages will rebuild in ~1 minute.', 'ok');
-          if (!postList.querySelector('.post-row')) renderPosts([]);
-        } else if (res.status === 409) {
-          setStatus($('manage-status'), 'That post changed on the server. Refresh and try again.', 'error');
-          resetActions(li, actions, f);
-        } else {
-          setStatus($('manage-status'), 'Could not delete: ' + (res.body.message || res.status), 'error');
-          resetActions(li, actions, f);
-        }
-      }).catch(function (err) {
-        setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
-        resetActions(li, actions, f);
-      });
+      gh(ghPath(m.path), { method: 'DELETE', body: { message: 'delete: ' + m.name, sha: m.sha, branch: BRANCH } })
+        .then(resJson).then(function (res) {
+          if (res.ok) {
+            setStatus($('manage-status'), 'Deleted. GitHub Pages will rebuild in ~1 minute.', 'ok');
+            loadPosts();
+          } else if (res.status === 409) {
+            setStatus($('manage-status'), 'That post changed on the server. Refresh and try again.', 'error');
+            resetActions(li, actions, m);
+          } else {
+            setStatus($('manage-status'), 'Could not delete: ' + (res.body.message || res.status), 'error');
+            resetActions(li, actions, m);
+          }
+        }).catch(function (err) {
+          setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
+          resetActions(li, actions, m);
+        });
     });
     actions.appendChild(q); actions.appendChild(yes); actions.appendChild(no);
   }
-  function renderPosts(files) {
-    postList.innerHTML = '';
-    var posts = (files || []).filter(function (f) {
-      return f.type === 'file' && /\.(?:md|markdown)$/i.test(f.name);
-    }).sort(function (a, b) { return a.name < b.name ? 1 : (a.name > b.name ? -1 : 0); });
-    if (!posts.length) {
-      var empty = document.createElement('li');
-      empty.className = 'post-empty'; empty.textContent = 'No posts yet.';
-      postList.appendChild(empty);
-      return;
-    }
-    posts.forEach(function (f) {
-      var info = humanizeName(f.name);
-      var li = document.createElement('li'); li.className = 'post-row';
-      var main = document.createElement('span'); main.className = 'post-row-main';
-      var t = document.createElement('span'); t.className = 'post-row-title'; t.textContent = info.title;
-      var d = document.createElement('span'); d.className = 'post-row-date'; d.textContent = info.date || f.name;
-      main.appendChild(t); main.appendChild(d);
-      var actions = document.createElement('span'); actions.className = 'post-row-actions';
-      actions.appendChild(delButton(li, actions, f));
-      li.appendChild(main); li.appendChild(actions);
-      postList.appendChild(li);
+
+  // --- DOM builders ---
+  function folderNode(label, count, level, children) {
+    var li = document.createElement('li'); li.className = 'tree-folder'; li.style.setProperty('--lvl', level);
+    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'tree-row tree-row--folder';
+    btn.setAttribute('aria-expanded', 'false');
+    var tw = document.createElement('span'); tw.className = 'tree-twisty'; tw.setAttribute('aria-hidden', 'true');
+    var lab = document.createElement('span'); lab.className = 'tree-label'; lab.textContent = label;
+    var cnt = document.createElement('span'); cnt.className = 'tree-count'; cnt.textContent = count;
+    btn.appendChild(tw); btn.appendChild(lab); btn.appendChild(cnt);
+    btn.addEventListener('click', function () {
+      var open = li.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
+    var ul = document.createElement('ul'); ul.className = 'tree-children'; ul.setAttribute('role', 'group');
+    children.forEach(function (c) { ul.appendChild(c); });
+    li.appendChild(btn); li.appendChild(ul);
+    return li;
+  }
+  function noteLeaf(m, level) {
+    var li = document.createElement('li'); li.className = 'tree-leaf'; li.style.setProperty('--lvl', level);
+    var row = document.createElement('div'); row.className = 'tree-row tree-row--note';
+    var tw = document.createElement('span'); tw.className = 'tree-twisty'; tw.setAttribute('aria-hidden', 'true');
+    var url = postUrl(m), title;
+    if (url) { title = document.createElement('a'); title.href = url; title.target = '_blank'; title.rel = 'noopener'; }
+    else { title = document.createElement('span'); }
+    title.className = 'tree-label tree-note-title'; title.textContent = m.title;
+    var date = document.createElement('span'); date.className = 'tree-date'; date.textContent = m.date || '';
+    var actions = document.createElement('span'); actions.className = 'tree-actions';
+    resetActions(li, actions, m);
+    row.appendChild(tw); row.appendChild(title); row.appendChild(date); row.appendChild(actions);
+    li.appendChild(row);
+    return li;
+  }
+  function renderTree(tree) {
+    postList.innerHTML = '';
+    var total = 0; tree.forEach(function (c) { total += countPosts(c); });
+    if (!total) {
+      var e = document.createElement('p'); e.className = 'post-empty'; e.textContent = 'No posts yet.';
+      postList.appendChild(e); return;
+    }
+    var root = document.createElement('ul'); root.className = 'tree'; root.setAttribute('role', 'tree');
+    tree.forEach(function (cat) {
+      var n = countPosts(cat); if (!n) return;
+      var subNodes = [];
+      cat.groups.forEach(function (g) {
+        if (!g.posts.length) return;
+        var sorted = g.posts.slice().sort(function (a, b) {
+          if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+          return a.name < b.name ? 1 : -1;
+        });
+        subNodes.push(folderNode(g.name, g.posts.length, 1, sorted.map(function (m) { return noteLeaf(m, 2); })));
+      });
+      root.appendChild(folderNode(cat.name, n, 0, subNodes));
+    });
+    postList.appendChild(root);
   }
   function loadPosts() {
     setStatus($('manage-status'), 'Loading posts…');
@@ -687,8 +930,14 @@ noindex: true
       if (!r.ok) throw new Error('Could not list posts (' + r.status + ').');
       return r.json();
     }).then(function (files) {
-      renderPosts(Array.isArray(files) ? files : []);
-      $('manage-status').hidden = true;
+      var posts = (Array.isArray(files) ? files : []).filter(function (f) {
+        return f.type === 'file' && /\.(?:md|markdown)$/i.test(f.name);
+      });
+      if (!posts.length) { renderTree([]); $('manage-status').hidden = true; return; }
+      return mapLimit(posts, 5, fetchMeta).then(function (metas) {
+        renderTree(buildTree(metas.filter(Boolean)));
+        $('manage-status').hidden = true;
+      });
     }).catch(function (err) {
       setStatus($('manage-status'), (err && err.message) || 'Network error.', 'error');
     });

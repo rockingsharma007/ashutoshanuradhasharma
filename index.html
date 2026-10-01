@@ -30,7 +30,7 @@ layout: default
 <script id="graph-data" type="application/json">
 {
   "nodes": [
-    { "id": "root", "label": {{ site.title | jsonify }}, "type": "root", "url": {{ '/' | relative_url | jsonify }} },
+    { "id": "root", "label": "Atlas", "type": "root", "url": {{ '/' | relative_url | jsonify }} },
     {% for cat in site.data.categories %}
     { "id": "cat-{{ cat.slug }}", "label": {{ cat.name | jsonify }}, "type": "category", "cat": {{ cat.slug | jsonify }}, "url": {{ cat.slug | prepend: '/' | append: '/' | relative_url | jsonify }} },
       {% for sub in cat.subsections %}
