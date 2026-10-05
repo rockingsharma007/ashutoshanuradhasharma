@@ -2,7 +2,7 @@
 title: "On Negative Space"
 date: 2026-09-18
 category: studio
-subcategory: Design
+topic: design
 excerpt: The parts of a design you don't fill are doing quiet, unglamorous work — setting the rhythm, aiming the eye, and telling the reader what matters. A short note on the discipline of leaving things out.
 read_time: "3 min read"
 ---

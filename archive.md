@@ -24,7 +24,7 @@ permalink: /archive/
             <a href="{{ post.url | relative_url }}">
               <span class="archive-date"><time datetime="{{ post.date | date_to_xmlschema }}">{{ post.date | date: "%b %-d" }}</time></span>
               <span class="archive-title">{{ post.title }}</span>
-              <span class="archive-tag">{{ pcat.name | default: post.category }}{% if post.subcategory %} · {{ post.subcategory }}{% endif %}</span>
+              <span class="archive-tag">{{ pcat.name | default: post.category }}{% if post.topic %} · {{ post.topic | split: '/' | last | replace: '-', ' ' | capitalize }}{% endif %}</span>
             </a>
           </li>
         {% endfor %}

@@ -55,14 +55,19 @@ noindex: true
         <select id="f-cat"></select>
       </div>
       <div class="field">
-        <label for="f-sub">Subsection</label>
-        <select id="f-sub"></select>
-        <input type="text" id="f-sub-new" hidden placeholder="New subcategory name" maxlength="40" autocomplete="off">
-      </div>
-      <div class="field">
         <label for="f-date">Date</label>
         <input type="date" id="f-date">
       </div>
+    </div>
+
+    <div class="field">
+      <label for="f-topic-path">Topic <span class="muted">(where this files in the tree — pick a path, or add a new topic)</span></label>
+      <div class="topic-path" id="f-topic-path"></div>
+    </div>
+
+    <div class="field" id="f-related-field" hidden>
+      <label>See also <span class="muted">(link related topics — shown on the topic’s page)</span></label>
+      <div class="related-picker" id="f-related"></div>
     </div>
 
     <div class="field">
@@ -122,7 +127,7 @@ noindex: true
       <button type="button" class="link-btn" id="refresh-posts">Refresh</button>
     </div>
     <p class="admin-help">
-      Your notes, filed by category and subsection. Hover a folder to peek inside,
+      Your notes, filed by category and nested topic. Hover a folder to peek inside,
       or click it to keep it open. <strong>Edit</strong> loads a note back into the
       editor above; <strong>Delete</strong> removes its Markdown file. GitHub Pages
       rebuilds in about a minute. Deletes can't be undone from here.
@@ -132,20 +137,17 @@ noindex: true
   </div>
 </section>
 
-<script id="admin-cats" type="application/json">
-[
-  {% for cat in site.data.categories %}
-  { "name": {{ cat.name | jsonify }}, "slug": {{ cat.slug | jsonify }}, "subs": [ {% for sub in cat.subsections %}{{ sub | jsonify }}{% unless forloop.last %}, {% endunless %}{% endfor %} ] }{% unless forloop.last %},{% endunless %}
-  {% endfor %}
-]
-</script>
+<script id="admin-cats" type="application/json">{{ site.data.categories | jsonify }}</script>
 
+<script src="{{ '/assets/js/topic-tree.js' | relative_url }}"></script>
 <script>
 (function () {
   var REPO = {{ site.repository | jsonify }};
   var BRANCH = {{ site.branch | default: 'main' | jsonify }};
   var BASEURL = {{ site.baseurl | default: '' | jsonify }};
+  var T = window.TopicTree;
   var CATS = JSON.parse(document.getElementById('admin-cats').textContent);
+  var catsSnapshot = '';           // serialized CATS baseline (set when composer loads)
   var KEY = 'gh_pat';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -164,53 +166,19 @@ noindex: true
     for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return new TextDecoder().decode(bytes);
   }
-  // Clean + validate a new subcategory name. Returns the normalized string, or
-  // null if it isn't safe as both a YAML list item and a front-matter value.
-  function normalizeSub(raw) {
+  // Clean + validate a new topic's display name. Returns the normalized string,
+  // or null if it isn't safe as a YAML scalar / front-matter value.
+  function normalizeTopicName(raw) {
     var s = (raw || '').trim().replace(/\s+/g, ' ');
     if (s.length > 40) return null;
     if (!/^[A-Za-z0-9][A-Za-z0-9 &-]*$/.test(s)) return null;
     return s;
   }
-  // Pure: insert `newSub` under the given category's `subsections:` list in the
-  // raw categories.yml text. Returns {status, text?, canonical?} without any
-  // DOM access, so it can be unit-tested in isolation.
-  function insertSubsection(text, targetSlug, newSub) {
-    var eol = text.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
-    var lines = text.split(/\r?\n/);
-    var slugRe = /^\s*slug:\s*(\S+)\s*$/, subsRe = /^(\s*)subsections:\s*$/;
-    var itemRe = /^(\s+)-\s+(.+?)\s*$/, topRe = /^-\s/;
-    var i, slugIdx = -1;
-    for (i = 0; i < lines.length; i++) {
-      var sm = slugRe.exec(lines[i]);
-      if (sm && sm[1] === targetSlug) { slugIdx = i; break; }
-    }
-    if (slugIdx === -1) return { status: 'error-slug' };
-
-    var subsIdx = -1, subsIndent = '';
-    for (i = slugIdx + 1; i < lines.length; i++) {
-      if (topRe.test(lines[i])) break;               // reached the next category
-      var bm = subsRe.exec(lines[i]);
-      if (bm) { subsIdx = i; subsIndent = bm[1]; break; }
-    }
-    if (subsIdx === -1) return { status: 'error-block' };
-
-    var itemIndent = null, lastItemIdx = subsIdx, existing = [];
-    for (i = subsIdx + 1; i < lines.length; i++) {
-      var im = itemRe.exec(lines[i]);
-      if (!im) break;
-      if (itemIndent === null) itemIndent = im[1];
-      existing.push(im[2].trim());
-      lastItemIdx = i;
-    }
-    if (itemIndent === null) itemIndent = subsIndent + '  ';
-
-    var lc = newSub.toLowerCase();
-    for (i = 0; i < existing.length; i++) {
-      if (existing[i].toLowerCase() === lc) return { status: 'exists', canonical: existing[i] };
-    }
-    lines.splice(lastItemIdx + 1, 0, itemIndent + '- ' + newSub);
-    return { status: 'inserted', text: lines.join(eol) };
+  // Find a topic node among a sibling list by its slug.
+  function findBySlug(list, slug) {
+    list = list || [];
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].slug === slug) return list[i];
+    return null;
   }
   function slugify(s) {
     return s.toLowerCase().trim()
@@ -464,7 +432,7 @@ noindex: true
     return html;
   }
 
-  // ---- category / subsection selects ----
+  // ---- category select ----
   function escOpt(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -476,43 +444,191 @@ noindex: true
     $('f-cat').innerHTML = CATS.map(function (c) {
       return '<option value="' + escOpt(c.slug) + '">' + escOpt(c.name) + '</option>';
     }).join('');
-    fillSubs();
+    buildPathPicker();
   }
-  function fillSubs() {
-    var c = getCatBySlug($('f-cat').value);
-    var opts = ((c && c.subs) || []).map(function (s) {
-      return '<option value="' + escOpt(s) + '">' + escOpt(s) + '</option>';
+
+  // ================= Cascading topic-path picker =================
+  // One <select> per level: "(file at category root)" / "(stop here)", each
+  // existing child, and "+ New topic…" (which reveals a name input). Choosing a
+  // real topic reveals the next level, so a post can file at any depth and new
+  // nested levels can be created inline.
+  var topicPathEl = $('f-topic-path');
+  var topicRelated = [];           // see-also refs currently checked
+  var lastRelatedPath = null;      // reset `topicRelated` only when the target node changes
+
+  function levels() { return topicPathEl.querySelectorAll('.topic-level'); }
+  function removeLevelsAfter(level) {
+    var ls = levels();
+    for (var i = ls.length - 1; i > level; i--) ls[i].parentNode.removeChild(ls[i]);
+  }
+  function appendLevel(childList, level) {
+    var div = document.createElement('div');
+    div.className = 'topic-level';
+    div._childList = childList || [];
+    var sel = document.createElement('select');
+    sel.className = 'topic-level-select';
+    if (level === 0) sel.id = 'f-topic-path-0';
+    var first = document.createElement('option');
+    first.value = '';
+    first.textContent = level === 0 ? '(file at category root)' : '(stop here)';
+    sel.appendChild(first);
+    (childList || []).forEach(function (n) {
+      var o = document.createElement('option');
+      o.value = n.slug;
+      o.textContent = n.name + ((n.children && n.children.length) ? ' ›' : '');
+      sel.appendChild(o);
     });
-    opts.push('<option value="__new__">+ New subcategory…</option>');
-    $('f-sub').innerHTML = opts.join('');
-    hideNewSub();
+    var newOpt = document.createElement('option');
+    newOpt.value = '__new__'; newOpt.textContent = '+ New topic…';
+    sel.appendChild(newOpt);
+    var input = document.createElement('input');
+    input.type = 'text'; input.className = 'topic-new-name'; input.hidden = true;
+    input.placeholder = 'New topic name'; input.maxLength = 40; input.autocomplete = 'off';
+    sel.addEventListener('change', function () { onLevelChange(level); });
+    input.addEventListener('input', function () { onNewNameInput(level); });
+    div.appendChild(sel); div.appendChild(input);
+    topicPathEl.appendChild(div);
+    return div;
   }
-  function hideNewSub() { var el = $('f-sub-new'); el.hidden = true; el.value = ''; }
-  function toggleNewSub() {
-    if ($('f-sub').value === '__new__') { $('f-sub-new').hidden = false; $('f-sub-new').focus(); }
-    else { hideNewSub(); }
+  function buildPathPicker() {
+    topicPathEl.innerHTML = '';
+    var cat = getCatBySlug($('f-cat').value);
+    appendLevel((cat && cat.topics) ? cat.topics : [], 0);
+    lastRelatedPath = null;
+    renderRelatedPicker();
   }
-  // The subcategory string the post will actually carry. Returns null only when
-  // "+ New…" is selected but the typed name is invalid. A typed name that
-  // matches an existing sub (case-insensitively) resolves to its canonical
-  // casing, so the Liquid `where` match still lands.
-  function effectiveSub() {
-    var sel = $('f-sub');
-    if (sel.value !== '__new__') return sel.value;
-    var norm = normalizeSub($('f-sub-new').value);
-    if (!norm) return null;
-    var c = getCatBySlug($('f-cat').value), subs = (c && c.subs) || [], lc = norm.toLowerCase();
-    for (var i = 0; i < subs.length; i++) if (subs[i].toLowerCase() === lc) return subs[i];
-    return norm;
+  function onLevelChange(level) {
+    removeLevelsAfter(level);
+    var levelEl = levels()[level];
+    var sel = levelEl.querySelector('select');
+    var input = levelEl.querySelector('input');
+    var val = sel.value;
+    if (val === '__new__') {
+      input.hidden = false;
+      try { input.focus(); } catch (e) {}
+      // the next level appears once a valid name is typed (onNewNameInput)
+    } else {
+      if (input) { input.hidden = true; input.value = ''; }
+      if (val !== '') {
+        var node = findBySlug(levelEl._childList, val);
+        appendLevel(node ? (node.children || []) : [], level + 1);
+      }
+    }
+    renderRelatedPicker();
   }
-  // True only when a genuinely new subcategory needs to be written to the YAML.
-  function isNewSub() {
-    if ($('f-sub').value !== '__new__') return false;
-    var norm = normalizeSub($('f-sub-new').value);
-    if (!norm) return false;
-    var c = getCatBySlug($('f-cat').value), subs = (c && c.subs) || [], lc = norm.toLowerCase();
-    for (var i = 0; i < subs.length; i++) if (subs[i].toLowerCase() === lc) return false;
-    return true;
+  function onNewNameInput(level) {
+    removeLevelsAfter(level);
+    var levelEl = levels()[level];
+    var name = normalizeTopicName(levelEl.querySelector('input').value);
+    if (name) {
+      var existing = findBySlug(levelEl._childList, slugify(name));
+      appendLevel(existing ? (existing.children || []) : [], level + 1);
+    }
+    renderRelatedPicker();
+  }
+  // Resolve the picker to { ok, segs:[{node,slug,name}], path }. ok is false only
+  // when "+ New…" is active with an invalid name. A new name matching an existing
+  // sibling slug resolves to that node (dedupe); an orphaned one-off option (from
+  // edit mode) is carried through as a new segment.
+  function currentTopicChain() {
+    var ls = levels(), segs = [], ok = true;
+    for (var i = 0; i < ls.length; i++) {
+      var sel = ls[i].querySelector('select');
+      if (!sel) break;
+      var val = sel.value, childList = ls[i]._childList || [];
+      if (val === '') break;                           // stop / root
+      if (val === '__new__') {
+        var name = normalizeTopicName(ls[i].querySelector('input').value);
+        if (!name) { ok = false; break; }
+        var slug = slugify(name), hit = findBySlug(childList, slug);
+        if (hit) segs.push({ node: hit, slug: hit.slug, name: hit.name });
+        else segs.push({ node: null, slug: slug, name: name });
+      } else {
+        var hit2 = findBySlug(childList, val);
+        if (hit2) segs.push({ node: hit2, slug: hit2.slug, name: hit2.name });
+        else segs.push({ node: null, slug: val, name: T.humanizeSeg(val) });
+      }
+    }
+    return { ok: ok, segs: segs, path: segs.map(function (s) { return s.slug; }).join('/') };
+  }
+  function currentTopicNode() {
+    var chain = currentTopicChain();
+    if (!chain.ok || !chain.segs.length) return null;
+    return chain.segs[chain.segs.length - 1].node || null;
+  }
+  // Create any missing nodes along the chain in the live CATS tree, returning the
+  // deepest node. New nodes carry the typed display name.
+  function materializeChain(catSlug, chain) {
+    var cat = getCatBySlug(catSlug);
+    if (!cat) return null;
+    cat.topics = cat.topics || [];
+    var children = cat.topics, node = null;
+    for (var i = 0; i < chain.segs.length; i++) {
+      var seg = chain.segs[i], hit = findBySlug(children, seg.slug);
+      if (!hit) { hit = { name: seg.name, slug: seg.slug }; children.push(hit); }
+      node = hit;
+      hit.children = hit.children || [];
+      children = hit.children;
+    }
+    return node;
+  }
+  function ensureOption(sel, value, label) {
+    var found = false;
+    Array.prototype.forEach.call(sel.options, function (o) { if (o.value === value) found = true; });
+    if (!found) {
+      var opt = document.createElement('option');
+      opt.value = value; opt.textContent = label;
+      sel.insertBefore(opt, sel.options[sel.options.length - 1]);   // before "+ New…"
+    }
+  }
+  // Rebuild the picker to reflect a stored category-relative path, inserting
+  // one-off options for any segment that isn't a declared topic (edit mode).
+  function setTopicPath(path) {
+    buildPathPicker();
+    path = (path || '').trim();
+    if (!path) { renderRelatedPicker(); return; }
+    var segs = path.split('/');
+    for (var i = 0; i < segs.length; i++) {
+      var levelEl = levels()[i];
+      if (!levelEl) break;
+      var sel = levelEl.querySelector('select');
+      ensureOption(sel, segs[i], T.humanizeSeg(segs[i]));
+      sel.value = segs[i];
+      onLevelChange(i);                                // appends the next level
+    }
+    renderRelatedPicker();
+  }
+
+  // ---- see-also (related topics) picker ----
+  function renderRelatedPicker() {
+    var field = $('f-related-field'), wrap = $('f-related');
+    var chain = currentTopicChain();
+    var selfRef = (chain.ok && chain.path) ? ($('f-cat').value + '/' + chain.path) : null;
+    var pathKey = chain.ok ? chain.path : '__invalid__';
+    if (pathKey !== lastRelatedPath) {
+      lastRelatedPath = pathKey;
+      var node = currentTopicNode();
+      topicRelated = (node && node.related) ? node.related.slice() : [];
+    }
+    if (!selfRef) { wrap.innerHTML = ''; field.hidden = true; return; }
+    var all = T.walkFlat(CATS), html = '', seen = {};
+    for (var i = 0; i < all.length; i++) {
+      var it = all[i];
+      if (it.ref === selfRef || seen[it.ref]) continue;
+      seen[it.ref] = true;
+      var checked = topicRelated.indexOf(it.ref) !== -1 ? ' checked' : '';
+      html += '<label class="related-opt"><input type="checkbox" value="' + escOpt(it.ref) + '"' + checked + '> ' +
+        escOpt(it.labelTrail.join(' › ')) + '</label>';
+    }
+    wrap.innerHTML = html || '<span class="muted">No other topics to link yet.</span>';
+    field.hidden = false;
+    Array.prototype.forEach.call(wrap.querySelectorAll('input[type=checkbox]'), function (cb) {
+      cb.addEventListener('change', function () {
+        var idx = topicRelated.indexOf(cb.value);
+        if (cb.checked) { if (idx === -1) topicRelated.push(cb.value); }
+        else if (idx !== -1) topicRelated.splice(idx, 1);
+      });
+    });
   }
 
   function updateFilename() {
@@ -524,7 +640,9 @@ noindex: true
   function showComposer() {
     authCard.hidden = true; composer.hidden = false; manageCard.hidden = false;
     $('f-date').value = today();
-    fillCats(); updateFilename(); updateCounts(); loadPosts();
+    fillCats();
+    catsSnapshot = T.serializeCategories(CATS);   // baseline for the catsDirty gate
+    updateFilename(); updateCounts(); loadPosts();
   }
   function verifyAndEnter() {
     setStatus($('auth-status'), 'Checking access…');
@@ -556,8 +674,7 @@ noindex: true
 
   $('f-title').addEventListener('input', updateFilename);
   $('f-date').addEventListener('input', updateFilename);
-  $('f-cat').addEventListener('change', fillSubs);
-  $('f-sub').addEventListener('change', toggleNewSub);
+  $('f-cat').addEventListener('change', function () { buildPathPicker(); });
 
   // ---- edit mode: load an existing post back into the composer ----
   var editing = null;   // { path, sha } while updating an existing post, else null
@@ -578,21 +695,6 @@ noindex: true
     $('f-date').value = today();
     fillCats(); updateFilename(); updateCounts();
   }
-  // Select a subcategory, adding a one-off option when the post carries a value
-  // that isn't in the dropdown (e.g. an orphaned sub) so Update preserves it.
-  function selectSub(value) {
-    var sel = $('f-sub');
-    if (!value) { hideNewSub(); return; }
-    var found = false;
-    Array.prototype.forEach.call(sel.options, function (o) { if (o.value === value) found = true; });
-    if (!found) {
-      var opt = document.createElement('option');
-      opt.value = value; opt.textContent = value;
-      sel.insertBefore(opt, sel.options[sel.options.length - 1]);   // before "+ New…"
-    }
-    sel.value = value;
-    hideNewSub();
-  }
   function startEdit(f) {
     setStatus($('manage-status'), 'Loading "' + f.name + '"…');
     gh(ghPath(f.path) + '?ref=' + encodeURIComponent(BRANCH)).then(resJson).then(function (res) {
@@ -602,8 +704,7 @@ noindex: true
       $('f-title').value = d.title || info.title;
       $('f-date').value = (d.date || info.date || today()).slice(0, 10);
       if (d.category) $('f-cat').value = d.category;
-      fillSubs();
-      selectSub(d.subcategory || '');
+      setTopicPath(d.topic || '');
       $('f-excerpt').value = d.excerpt || '';
       $('f-read').value = d.read_time || '';
       body.value = parsed.body;
@@ -628,26 +729,38 @@ noindex: true
     if (!title) { setStatus($('pub-status'), 'A title is required.', 'error'); return; }
 
     var catSlug = $('f-cat').value;
-    var sub = effectiveSub();
-    if (sub === null) {
-      setStatus($('pub-status'), 'Subcategory: letters, numbers, spaces, hyphens and & only, must start with a letter or number, 40 characters max.', 'error');
+    var chain = currentTopicChain();
+    if (!chain.ok) {
+      setStatus($('pub-status'), 'New topic name: letters, numbers, spaces, hyphens and & only, must start with a letter or number, 40 characters max.', 'error');
       return;
     }
-    var makeNew = isNewSub();
+    var topicPath = chain.path;              // '' = file at the category root
+
+    // Fold any new topic nodes + see-also links into the in-memory tree. This is
+    // what makes `catsDirty` true below and gets written to categories.yml.
+    var deepest = topicPath ? materializeChain(catSlug, chain) : null;
+    if (deepest) {
+      var selfRef = catSlug + '/' + topicPath, rel = [];
+      for (var ri = 0; ri < topicRelated.length; ri++) {
+        var rr = topicRelated[ri];
+        if (rr && rr !== selfRef && rel.indexOf(rr) === -1) rel.push(rr);
+      }
+      if (rel.length) deepest.related = rel;
+      else if (deepest.related) delete deepest.related;
+    }
 
     var date = $('f-date').value || today();
     var slug = slugify(title);
     var path = '_posts/' + date + '-' + slug + '.md';
     var readTime = $('f-read').value.trim() || (estimate() + ' min read');
 
-    // Built at PUT time so it reflects `sub` even after it's reassigned to an
-    // existing subcategory's canonical casing.
+    // Topic is a slug path (safe bare); omitted entirely for a category-root post.
     function buildPost() {
       return '---\n' +
         'title: "' + title.replace(/"/g, '\\"') + '"\n' +
         'date: ' + date + '\n' +
         'category: ' + catSlug + '\n' +
-        'subcategory: "' + sub.replace(/"/g, '\\"') + '"\n' +
+        (topicPath ? 'topic: ' + topicPath + '\n' : '') +
         (($('f-excerpt').value.trim()) ? 'excerpt: "' + $('f-excerpt').value.trim().replace(/"/g, '\\"') + '"\n' : '') +
         'read_time: "' + readTime.replace(/"/g, '\\"') + '"\n' +
         '---\n\n' + body.value.trim() + '\n';
@@ -686,10 +799,6 @@ noindex: true
           : Promise.resolve(true);
         return cleanup.then(function (oldRemoved) {
           done();
-          if (makeNew) {   // reflect the new sub in-memory so this session sees it
-            var c = getCatBySlug(catSlug);
-            if (c) { c.subs = c.subs || []; c.subs.push(sub); }
-          }
           var orphaned = isEdit && !sameFile && !oldRemoved;
           var msg = orphaned
             ? 'Updated — but the old file (' + editing.path + ') could not be removed. Delete it from the list below.'
@@ -711,31 +820,22 @@ noindex: true
 
     var CATS_PATH = 'repos/' + REPO + '/contents/_data/categories.yml';
 
-    // YAML-first: register the new subcategory in _data/categories.yml, then PUT
-    // the post. The only inconsistency this can leave is a registered-but-empty
-    // subsection (harmless); it never orphans a post.
-    function registerSubThenPublish(retry) {
+    // YAML-first: write the whole regenerated categories.yml (new topics + see-also
+    // folded in above), then PUT the post. Writing the data file before the post
+    // means the worst case is a registered-but-empty topic (harmless) — never a
+    // post pointing at a topic the tree doesn't declare.
+    function saveCategoriesThenPublish(retry) {
       return gh(CATS_PATH + '?ref=' + encodeURIComponent(BRANCH)).then(function (r) {
         if (!r.ok) throw new Error('Could not read categories.yml (' + r.status + ').');
         return r.json();
       }).then(function (file) {
-        var out = insertSubsection(b64ToUtf8(file.content), catSlug, sub);
-        if (out.status === 'exists') {   // stale dropdown — it's already there
-          makeNew = false; sub = out.canonical;
-          return writePost();
-        }
-        if (out.status !== 'inserted') {
-          throw new Error("Couldn't safely update categories.yml — nothing was published.");
-        }
+        var content = T.CATS_HEADER + '\n' + T.serializeCategories(CATS);
         return gh(CATS_PATH, {
           method: 'PUT',
-          body: {
-            message: 'data: add subcategory "' + sub + '" to ' + catSlug,
-            content: utf8ToB64(out.text), sha: file.sha, branch: BRANCH
-          }
+          body: { message: 'data: update topics', content: utf8ToB64(content), sha: file.sha, branch: BRANCH }
         }).then(function (r) {
-          if (r.ok) return writePost();
-          if ((r.status === 409 || r.status === 422) && !retry) return registerSubThenPublish(true);
+          if (r.ok) { catsSnapshot = T.serializeCategories(CATS); return writePost(); }
+          if ((r.status === 409 || r.status === 422) && !retry) return saveCategoriesThenPublish(true);
           return r.json().then(function (j) {
             throw new Error('Could not save categories.yml: ' + (j.message || r.status));
           });
@@ -743,10 +843,12 @@ noindex: true
       });
     }
 
-    setStatus($('pub-status'), makeNew ? 'Adding subcategory & saving…' : (editing ? 'Updating…' : 'Publishing…'));
+    // Only touch categories.yml when the tree actually changed since it loaded.
+    var catsDirty = T.serializeCategories(CATS) !== catsSnapshot;
+    setStatus($('pub-status'), catsDirty ? 'Saving topics & publishing…' : (editing ? 'Updating…' : 'Publishing…'));
     $('publish-btn').disabled = true;
 
-    (makeNew ? registerSubThenPublish(false) : writePost()).catch(function (err) {
+    (catsDirty ? saveCategoriesThenPublish(false) : writePost()).catch(function (err) {
       done();
       setStatus($('pub-status'), (err && err.message) || 'Network error.', 'error');
     });
@@ -771,10 +873,10 @@ noindex: true
     return BASEURL + '/' + m.category + '/' + p[0] + '/' + p[1] + '/' + p[2] + '/' + postSlug(m.name) + '/';
   }
 
-  // --- fetch each post's front matter so it can be filed by category/subsection ---
+  // --- fetch each post's front matter so it can be filed in the topic tree ---
   function fetchMeta(f) {
     var info = humanizeName(f.name);
-    var meta = { name: f.name, path: f.path, sha: f.sha, title: info.title, date: info.date, category: '', subcategory: '' };
+    var meta = { name: f.name, path: f.path, sha: f.sha, title: info.title, date: info.date, category: '', topic: '' };
     return gh(ghPath(f.path) + '?ref=' + encodeURIComponent(BRANCH))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
@@ -784,43 +886,34 @@ noindex: true
           if (d.title) meta.title = d.title;
           if (d.date) meta.date = d.date.slice(0, 10);
           meta.category = d.category || '';
-          meta.subcategory = d.subcategory || '';
+          meta.topic = d.topic || '';
         }
         return meta;
       }, function () { return meta; });
   }
 
-  // --- group metas into Category → Subsection → notes ---
-  function buildTree(metas) {
-    function newCat(slug, name, subNames) {
-      var cat = { slug: slug, name: name, groups: [], index: {}, misc: null };
-      (subNames || []).forEach(function (s) {
-        var g = { name: s, posts: [] }; cat.groups.push(g); cat.index[s.toLowerCase()] = g;
-      });
-      return cat;
-    }
-    var cats = CATS.map(function (c) { return newCat(c.slug, c.name, c.subs || []); });
-    var unfiled = newCat('', 'Unfiled', []);
-    function findCat(slug) { for (var i = 0; i < cats.length; i++) if (cats[i].slug === slug) return cats[i]; return null; }
-    function groupFor(cat, subName) {
-      if (subName) {
-        var lc = subName.toLowerCase();
-        if (cat.index[lc]) return cat.index[lc];
-        var g = { name: subName, posts: [] }; cat.index[lc] = g; cat.groups.push(g); // unregistered sub
-        return g;
-      }
-      if (!cat.misc) { cat.misc = { name: 'Uncategorized', posts: [] }; cat.groups.push(cat.misc); }
-      return cat.misc;
-    }
-    metas.forEach(function (m) {
-      var cat = findCat(m.category);
-      if (cat) groupFor(cat, m.subcategory).posts.push(m);
-      else groupFor(unfiled, m.category || m.subcategory || '').posts.push(m);
+  // --- file metas into the nested topic tree (one forest node per category) ---
+  // Each post is bucketed to its deepest matching topic node; orphaned `topic`
+  // paths spawn synthetic nodes (via TopicTree) so nothing is ever hidden.
+  function buildExplorerForest(metas) {
+    // newest-first, so posts within any node render reverse-chronologically
+    var sorted = metas.slice().sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      return a.name < b.name ? 1 : -1;
     });
-    return cats.concat([unfiled]);
-  }
-  function countPosts(cat) {
-    var n = 0; cat.groups.forEach(function (g) { n += g.posts.length; }); return n;
+    var forest = [], known = {};
+    CATS.forEach(function (c) {
+      known[c.slug] = true;
+      var catPosts = sorted.filter(function (m) { return m.category === c.slug; });
+      var bucket = T.bucketPosts(catPosts, c.topics || [], c.slug);
+      forest.push({ name: c.name, path: 'cat:' + c.slug, children: bucket.roots, posts: bucket.rootPosts });
+    });
+    // posts whose category isn't one of the three live under "Unfiled"
+    var orphans = sorted.filter(function (m) { return !known[m.category]; });
+    if (orphans.length) {
+      forest.push({ name: 'Unfiled', path: 'cat:__unfiled__', children: [], posts: orphans });
+    }
+    return forest;
   }
 
   // --- delete (two-step confirm, inline on the note row) ---
@@ -867,27 +960,11 @@ noindex: true
     actions.appendChild(q); actions.appendChild(yes); actions.appendChild(no);
   }
 
-  // --- DOM builders ---
-  function folderNode(label, count, level, children) {
-    var li = document.createElement('li'); li.className = 'tree-folder'; li.style.setProperty('--lvl', level);
-    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'tree-row tree-row--folder';
-    btn.setAttribute('aria-expanded', 'false');
-    var tw = document.createElement('span'); tw.className = 'tree-twisty'; tw.setAttribute('aria-hidden', 'true');
-    var lab = document.createElement('span'); lab.className = 'tree-label'; lab.textContent = label;
-    var cnt = document.createElement('span'); cnt.className = 'tree-count'; cnt.textContent = count;
-    btn.appendChild(tw); btn.appendChild(lab); btn.appendChild(cnt);
-    btn.addEventListener('click', function () {
-      var open = li.classList.toggle('open');
-      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
-    var ul = document.createElement('ul'); ul.className = 'tree-children'; ul.setAttribute('role', 'group');
-    children.forEach(function (c) { ul.appendChild(c); });
-    li.appendChild(btn); li.appendChild(ul);
-    return li;
-  }
-  function noteLeaf(m, level) {
-    var li = document.createElement('li'); li.className = 'tree-leaf'; li.style.setProperty('--lvl', level);
+  // --- note leaf (explorer-mode leaf renderer passed to TopicTree.renderTree) ---
+  function makeNoteLeaf(m, level) {
+    var li = document.createElement('li'); li.className = 'tree-leaf';
     var row = document.createElement('div'); row.className = 'tree-row tree-row--note';
+    row.style.setProperty('--lvl', level);
     var tw = document.createElement('span'); tw.className = 'tree-twisty'; tw.setAttribute('aria-hidden', 'true');
     var url = postUrl(m), title;
     if (url) { title = document.createElement('a'); title.href = url; title.target = '_blank'; title.rel = 'noopener'; }
@@ -900,28 +977,16 @@ noindex: true
     li.appendChild(row);
     return li;
   }
-  function renderTree(tree) {
+  function renderManageTree(metas) {
     postList.innerHTML = '';
-    var total = 0; tree.forEach(function (c) { total += countPosts(c); });
-    if (!total) {
+    if (!metas.length) {
       var e = document.createElement('p'); e.className = 'post-empty'; e.textContent = 'No posts yet.';
       postList.appendChild(e); return;
     }
-    var root = document.createElement('ul'); root.className = 'tree'; root.setAttribute('role', 'tree');
-    tree.forEach(function (cat) {
-      var n = countPosts(cat); if (!n) return;
-      var subNodes = [];
-      cat.groups.forEach(function (g) {
-        if (!g.posts.length) return;
-        var sorted = g.posts.slice().sort(function (a, b) {
-          if (a.date !== b.date) return a.date < b.date ? 1 : -1;
-          return a.name < b.name ? 1 : -1;
-        });
-        subNodes.push(folderNode(g.name, g.posts.length, 1, sorted.map(function (m) { return noteLeaf(m, 2); })));
-      });
-      root.appendChild(folderNode(cat.name, n, 0, subNodes));
+    var forest = buildExplorerForest(metas);
+    T.renderTree(postList, forest, {
+      mode: 'explorer', peek: true, countOf: T.subtreeCount, leafRenderer: makeNoteLeaf
     });
-    postList.appendChild(root);
   }
   function loadPosts() {
     setStatus($('manage-status'), 'Loading posts…');
@@ -933,9 +998,9 @@ noindex: true
       var posts = (Array.isArray(files) ? files : []).filter(function (f) {
         return f.type === 'file' && /\.(?:md|markdown)$/i.test(f.name);
       });
-      if (!posts.length) { renderTree([]); $('manage-status').hidden = true; return; }
+      if (!posts.length) { renderManageTree([]); $('manage-status').hidden = true; return; }
       return mapLimit(posts, 5, fetchMeta).then(function (metas) {
-        renderTree(buildTree(metas.filter(Boolean)));
+        renderManageTree(metas.filter(Boolean));
         $('manage-status').hidden = true;
       });
     }).catch(function (err) {

@@ -21,41 +21,16 @@ layout: default
       <span class="graph-hint">Every idea, linked. Pull a thread — follow where it goes.</span>
     </div>
   </div>
-  <div class="graph-stage" id="graph-stage">
+  <div class="graph-stage" id="graph-stage" data-base="{{ site.baseurl }}">
     <canvas id="graph-canvas"></canvas>
     <div class="graph-tooltip" id="graph-tooltip" hidden></div>
   </div>
 </section>
 
-<script id="graph-data" type="application/json">
-{
-  "nodes": [
-    { "id": "root", "label": "Atlas", "type": "root", "url": {{ '/' | relative_url | jsonify }} },
-    {% for cat in site.data.categories %}
-    { "id": "cat-{{ cat.slug }}", "label": {{ cat.name | jsonify }}, "type": "category", "cat": {{ cat.slug | jsonify }}, "url": {{ cat.slug | prepend: '/' | append: '/' | relative_url | jsonify }} },
-      {% for sub in cat.subsections %}
-    { "id": "sub-{{ cat.slug }}-{{ sub | slugify }}", "label": {{ sub | jsonify }}, "type": "sub", "cat": {{ cat.slug | jsonify }}, "url": {{ cat.slug | prepend: '/' | append: '/' | relative_url | jsonify }} },
-        {% assign sub_posts = site.posts | where: "category", cat.slug | where: "subcategory", sub %}
-        {% for post in sub_posts %}
-    { "id": {{ post.url | jsonify }}, "label": {{ post.title | jsonify }}, "type": "post", "cat": {{ cat.slug | jsonify }}, "url": {{ post.url | relative_url | jsonify }} },
-        {% endfor %}
-      {% endfor %}
-    {% endfor %}
-  ],
-  "links": [
-    {% for cat in site.data.categories %}
-    { "source": "root", "target": "cat-{{ cat.slug }}" },
-      {% for sub in cat.subsections %}
-    { "source": "cat-{{ cat.slug }}", "target": "sub-{{ cat.slug }}-{{ sub | slugify }}" },
-        {% assign sub_posts = site.posts | where: "category", cat.slug | where: "subcategory", sub %}
-        {% for post in sub_posts %}
-    { "source": "sub-{{ cat.slug }}-{{ sub | slugify }}", "target": {{ post.url | jsonify }} },
-        {% endfor %}
-      {% endfor %}
-    {% endfor %}
-  ]
-}
-</script>
+<script type="application/json" id="graph-tree-data">{{ site.data.categories | jsonify }}</script>
+<script type="application/json" id="graph-posts-data">[
+{% for post in site.posts %}{"title":{{ post.title | jsonify }},"url":{{ post.url | relative_url | jsonify }},"category":{{ post.category | default: "" | jsonify }},"topic":{{ post.topic | default: "" | jsonify }}}{% unless forloop.last %},{% endunless %}
+{% endfor %}]</script>
 
 <section class="wrap">
   <div class="section-head">
@@ -66,7 +41,7 @@ layout: default
     {% for post in site.posts limit: 6 %}
       {% assign pcat = site.data.categories | where: "slug", post.category | first %}
       <a class="card" href="{{ post.url | relative_url }}">
-        <span class="card-tag">{{ pcat.name | default: post.category }}{% if post.subcategory %} · {{ post.subcategory }}{% endif %}</span>
+        <span class="card-tag">{{ pcat.name | default: post.category }}{% if post.topic %} · {{ post.topic | split: '/' | last | replace: '-', ' ' | capitalize }}{% endif %}</span>
         <h3 class="card-title">{{ post.title }}</h3>
         {% if post.excerpt %}<p class="card-excerpt">{{ post.excerpt | strip_html | truncatewords: 22 }}</p>{% endif %}
         <time class="card-date">{{ post.date | date: "%b %-d, %Y" }}</time>
@@ -75,4 +50,5 @@ layout: default
   </div>
 </section>
 
+<script src="{{ '/assets/js/topic-tree.js' | relative_url }}"></script>
 <script src="{{ '/assets/js/graph.js' | relative_url }}"></script>

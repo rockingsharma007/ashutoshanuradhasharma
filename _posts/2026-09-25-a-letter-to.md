@@ -2,7 +2,7 @@
 title: "A letter to ___"
 date: 2026-09-25
 category: lab
-subcategory: "Physics"
+topic: physics
 read_time: "1 min read"
 ---
 

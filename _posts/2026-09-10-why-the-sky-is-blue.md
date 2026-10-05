@@ -2,7 +2,7 @@
 title: "Why the Sky Is Blue, and the Sunset Isn't"
 date: 2026-09-10
 category: lab
-subcategory: Physics
+topic: physics
 excerpt: The same sunlight, the same air, the same physics — and yet noon is blue and dusk is red. The difference is only how far the light had to travel to reach you.
 read_time: "4 min read"
 ---

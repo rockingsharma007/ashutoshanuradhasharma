@@ -2,7 +2,7 @@
 title: "Midfield Maestro MCP"
 date: 2026-09-27
 category: lab
-subcategory: "AI"
+topic: ai
 excerpt: "One way to provide all sorts of context!!!"
 read_time: "1 min read"
 ---

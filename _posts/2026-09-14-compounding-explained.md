@@ -2,7 +2,7 @@
 title: "The Slow Miracle of Compounding"
 date: 2026-09-14
 category: market
-subcategory: Investing
+topic: investing
 excerpt: The most powerful idea in finance is also the most boring one to live through. It rewards patience over cleverness — and it does almost all its work in the years you're least tempted to pay attention.
 read_time: "5 min read"
 ---

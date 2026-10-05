@@ -2,7 +2,7 @@
 title: "Reasoning bottom UP"
 date: 2026-10-01
 category: lab
-subcategory: "AI"
+topic: ai
 read_time: "1 min read"
 ---
 

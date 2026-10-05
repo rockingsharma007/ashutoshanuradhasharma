@@ -12,14 +12,21 @@
 (function () {
   var stage = document.getElementById('graph-stage');
   var canvas = document.getElementById('graph-canvas');
-  var dataEl = document.getElementById('graph-data');
+  var treeEl = document.getElementById('graph-tree-data');
+  var postsEl = document.getElementById('graph-posts-data');
   var tip = document.getElementById('graph-tooltip');
-  if (!stage || !canvas || !dataEl) return;
+  var T = window.TopicTree;
+  if (!stage || !canvas || !treeEl || !postsEl || !T) return;
+
+  var BASE = stage.getAttribute('data-base') || '';
 
   // JSON emitted by Liquid can carry trailing commas; strip them before parsing.
-  var raw = dataEl.textContent.replace(/,(\s*[}\]])/g, '$1');
-  var data;
-  try { data = JSON.parse(raw); } catch (e) { console.error('graph data parse error', e); return; }
+  function stripCommas(s) { return s.replace(/,(\s*[}\]])/g, '$1'); }
+  var cats, allPosts;
+  try {
+    cats = JSON.parse(stripCommas(treeEl.textContent));
+    allPosts = JSON.parse(stripCommas(postsEl.textContent));
+  } catch (e) { console.error('graph data parse error', e); return; }
 
   var ctx = canvas.getContext('2d');
   var DPR = Math.max(1, window.devicePixelRatio || 1);
@@ -47,12 +54,51 @@
       Math.round(c.b + (255 - c.b) * amt) + ')';
   }
 
-  // ---- build node/link objects ----
+  // ---- build the node/link graph by walking the taxonomy tree ----
+  // Node ids are collision-proof: 'root', 'cat/<slug>', a topic's full ref
+  // ('lab/physics/optics'), and a post's URL. Tree edges wire parent→child;
+  // a topic's `related` refs become cross-links (rel:true) that are drawn but
+  // kept out of the spring force so they never distort the layout.
+  function catUrl(slug) { return BASE + '/' + slug + '/'; }
+  var rawNodes = [], rawLinks = [], seen = {};
+  function pushNode(n) { if (!seen[n.id]) { seen[n.id] = true; rawNodes.push(n); } }
+  function addPost(post, parentId) {
+    pushNode({ id: post.url, label: post.title, type: 'post', cat: post.category, depth: 99, url: post.url });
+    rawLinks.push({ source: parentId, target: post.url });
+  }
+  function walkTopics(tnodes, parentId, depth, catSlug) {
+    for (var i = 0; i < tnodes.length; i++) {
+      var tn = tnodes[i], id = tn.ref;
+      pushNode({ id: id, label: tn.name, type: 'topic', cat: catSlug, depth: depth,
+        url: catUrl(catSlug) + '?topic=' + encodeURIComponent(tn.path) });
+      rawLinks.push({ source: parentId, target: id });
+      if (tn.related) {
+        for (var r = 0; r < tn.related.length; r++) {
+          rawLinks.push({ source: id, target: String(tn.related[r]), rel: true });
+        }
+      }
+      var tposts = tn.posts || [];
+      for (var p = 0; p < tposts.length; p++) addPost(tposts[p], id);
+      if (tn.children && tn.children.length) walkTopics(tn.children, id, depth + 1, catSlug);
+    }
+  }
+
+  pushNode({ id: 'root', label: 'Atlas', type: 'root', depth: 0, url: BASE + '/' });
+  for (var ci = 0; ci < cats.length; ci++) {
+    var cat = cats[ci], catId = 'cat/' + cat.slug;
+    pushNode({ id: catId, label: cat.name, type: 'category', cat: cat.slug, depth: 1, url: catUrl(cat.slug) });
+    rawLinks.push({ source: 'root', target: catId });
+    var catPosts = allPosts.filter(function (p) { return p.category === cat.slug; });
+    var bucket = T.bucketPosts(catPosts, cat.topics || [], cat.slug);
+    for (var rp = 0; rp < bucket.rootPosts.length; rp++) addPost(bucket.rootPosts[rp], catId);
+    walkTopics(bucket.roots, catId, 2, cat.slug);
+  }
+
   var byId = {};
-  var nodes = data.nodes.map(function (n) {
+  var nodes = rawNodes.map(function (n) {
     var isRoot = n.type === 'root';
     var node = {
-      id: n.id, label: n.label, type: n.type, cat: n.cat, url: n.url,
+      id: n.id, label: n.label, type: n.type, cat: n.cat, url: n.url, depth: n.depth,
       x: isRoot ? 0 : (Math.random() - 0.5) * 260,
       y: isRoot ? 0 : (Math.random() - 0.5) * 260,
       vx: 0, vy: 0, deg: 0
@@ -60,27 +106,33 @@
     byId[n.id] = node;
     return node;
   });
-  var links = data.links
-    .map(function (l) { return { source: byId[l.source], target: byId[l.target] }; })
+  var links = rawLinks
+    .map(function (l) { return { source: byId[l.source], target: byId[l.target], rel: !!l.rel }; })
     .filter(function (l) { return l.source && l.target; });
+  window.__graph = { nodes: nodes, links: links };
 
   // adjacency + degree (Obsidian sizes nodes by connection count)
   var neighbors = {};
   nodes.forEach(function (n) { neighbors[n.id] = {}; });
   links.forEach(function (l) {
+    // Cross-links count for hover highlighting, but not toward degree-sizing.
     neighbors[l.source.id][l.target.id] = true;
     neighbors[l.target.id][l.source.id] = true;
-    l.source.deg++; l.target.deg++;
+    if (!l.rel) { l.source.deg++; l.target.deg++; }
   });
 
   function baseRadius(n) {
-    var base = n.type === 'root' ? 13 : n.type === 'category' ? 9 : n.type === 'sub' ? 6 : 4.5;
+    var base;
+    if (n.type === 'root') base = 13;
+    else if (n.type === 'category') base = 9;
+    else if (n.type === 'post') base = 4.5;
+    else base = Math.max(4, 7 - (n.depth - 2) * 0.9); // topics shrink with depth
     return base + Math.min(n.deg, 8) * 1.0; // grow with connections
   }
   function idealLength(l) {
     if (l.source.type === 'root') return 165;
     if (l.source.type === 'category') return 94;
-    return 56;
+    return Math.max(42, 70 - (l.source.depth - 2) * 8); // deeper topics sit closer
   }
 
   // ---- fixed view transform (fit only, no user zoom/pan) ----
@@ -141,9 +193,11 @@
       }
     }
 
-    // springs toward each link's ideal length
+    // springs toward each link's ideal length (cross-links are draw-only)
     for (var k = 0; k < links.length; k++) {
-      var l = links[k], L = idealLength(l);
+      var l = links[k];
+      if (l.rel) continue;
+      var L = idealLength(l);
       var ddx = l.target.x - l.source.x, ddy = l.target.y - l.source.y;
       var dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01;
       var force = (dist - L) * K_SPRING, ux = ddx / dist, uy = ddy / dist;
@@ -196,6 +250,20 @@
       var l = links[i];
       var hot = hoverNode && (l.source === hoverNode || l.target === hoverNode);
       var faded = hoverNode && !hot;
+      if (l.rel) {
+        // See-also cross-link — dashed, quiet, never a tree edge.
+        ctx.save();
+        ctx.setLineDash([4 / scale, 4 / scale]);
+        ctx.strokeStyle = hot ? rgba(nodeColor(l.source), 0.5)
+          : (faded ? rgba('#8a8a90', 0.05) : rgba('#8a8a90', 0.16));
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath();
+        ctx.moveTo(l.source.x, l.source.y);
+        ctx.lineTo(l.target.x, l.target.y);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       if (hot) {
         ctx.strokeStyle = rgba(nodeColor(l.target.type === 'root' ? l.source : l.target), 0.55);
         ctx.lineWidth = 1.6 / scale;
@@ -242,7 +310,8 @@
       // labels
       var showLabel = n.type !== 'post' || n === hoverNode || (connected && connected[n.id]);
       if (showLabel && !dim) {
-        var fs = (n.type === 'root' ? 14 : n.type === 'category' ? 12.5 : 11) / scale;
+        var fs = (n.type === 'root' ? 14 : n.type === 'category' ? 12.5
+          : n.type === 'post' ? 11 : Math.max(10.5, 12 - (n.depth - 2) * 0.5)) / scale;
         ctx.font = '500 ' + fs + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';

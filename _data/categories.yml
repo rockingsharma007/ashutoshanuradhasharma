@@ -1,27 +1,37 @@
-# The three top-level categories and their subsections.
-# Add or rename subsections here — pages update automatically.
-# NOTE: `slug` is used in URLs and post front matter — changing it changes links.
+# The three top-level categories and their nested topics.
+# Add, rename, or nest topics in the /admin/ editor — pages update automatically.
+# NOTE: `slug` is used in post front matter and graph/URLs — changing it breaks links.
 - name: Lab
   slug: lab
-  blurb: The physical world, the mind, and everything we measure.
-  subsections:
-    - Physics
-    - Biology
-    - Technology
-    - AI
+  blurb: "The physical world, the mind, and everything we measure."
+  topics:
+    - name: Physics
+      slug: physics
+    - name: Biology
+      slug: biology
+    - name: Technology
+      slug: technology
+    - name: AI
+      slug: ai
 
 - name: Market
   slug: market
-  blurb: Markets, money, and the machinery of business.
-  subsections:
-    - Economics
-    - Investing
-    - Startups
+  blurb: "Markets, money, and the machinery of business."
+  topics:
+    - name: Economics
+      slug: economics
+    - name: Investing
+      slug: investing
+    - name: Startups
+      slug: startups
 
 - name: Studio
   slug: studio
-  blurb: Words, images, sound, and the culture around them.
-  subsections:
-    - Literature
-    - Music
-    - Design
+  blurb: "Words, images, sound, and the culture around them."
+  topics:
+    - name: Literature
+      slug: literature
+    - name: Music
+      slug: music
+    - name: Design
+      slug: design

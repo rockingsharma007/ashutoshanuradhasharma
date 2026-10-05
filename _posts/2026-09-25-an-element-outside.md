@@ -2,7 +2,7 @@
 title: "An Element Outside"
 date: 2026-09-25
 category: studio
-subcategory: "Literature"
+topic: literature
 read_time: "1 min read"
 ---
 
