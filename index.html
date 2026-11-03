@@ -5,7 +5,7 @@ layout: default
   <div class="wrap">
     <p class="eyebrow">Personal blog</p>
     <h1 class="display display-xl">An atlas of a<br>curious mind.</h1>
-    <p class="lead lead-lg">Field notes from three rooms — a lab for the questions, a market for the stakes, a studio for the making. This is where I keep them.</p>
+    <p class="lead lead-lg">Field notes from three rooms: a lab for the questions, a market for the stakes, a studio for the making. This is where I keep them.</p>
     <div class="hero-cta">
       {% for cat in site.data.categories %}
         <a class="pill" href="{{ cat.slug | prepend: '/' | append: '/' | relative_url }}">{{ cat.name }}</a>
@@ -18,7 +18,7 @@ layout: default
   <div class="wrap">
     <div class="section-head">
       <h2>The constellation</h2>
-      <span class="graph-hint">Every idea, linked. Pull a thread — follow where it goes.</span>
+      <span class="graph-hint">Every idea, linked. Pull a thread, follow where it goes.</span>
     </div>
   </div>
   <div class="graph-stage" id="graph-stage" data-base="{{ site.baseurl }}">

@@ -8,7 +8,7 @@ permalink: /about/
   <h1 class="display">Hello, I'm Ashutosh.</h1>
   <div class="prose">
     <p class="lead">
-      I keep this place the way some people keep a commonplace book — a spot to
+      I keep this place the way some people keep a commonplace book, a spot to
       set down what I notice, work out what I think, and come back to it later.
     </p>
     <p>
@@ -17,13 +17,13 @@ permalink: /about/
       three rooms I keep returning to:
     </p>
     <p>
-      <strong>Lab</strong> — the physical world and the mind, and the pleasure
+      <strong>Lab</strong> : the physical world and the mind, and the pleasure
       of finding out how a thing actually works.
 
-      <strong>Market</strong> — money, incentives, and the quiet machinery that
+      <strong>Market</strong> : money, incentives, and the quiet machinery that
       decides what gets built and what gets bought.
       
-      <strong>Studio</strong> — words, images, and sound, and the craft of
+      <strong>Studio</strong> : words, images, and sound, and the craft of
       making something worth keeping.
     </p>
     <p>
