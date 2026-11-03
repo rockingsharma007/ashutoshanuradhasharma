@@ -19,4 +19,4 @@ I have a feeling the formula of generic intelligence is hidden somewhere at fund
 > What is intelligence, one may ask? 
 > To me it's nothing but an ability to see through layers of things. 
 
-And if we truly want to see through it all. I suggest we got down town.
+And if we truly want to see through it all. I suggest we go down town.
