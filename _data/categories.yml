@@ -11,6 +11,9 @@
       slug: biology
     - name: Technology
       slug: technology
+      children:
+        - name: Photonics
+          slug: photonics
     - name: AI
       slug: ai
 
