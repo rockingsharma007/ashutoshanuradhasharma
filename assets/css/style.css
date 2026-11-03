@@ -409,12 +409,40 @@ img { max-width: 100%; display: block; }
 .post-hero { width: 100%; border-radius: var(--radius); margin: 0 auto 44px; max-width: var(--wrap); }
 .back-link { display: inline-block; margin-top: 48px; font-size: 15px; }
 
+/* ---------- Backlinks ("Linked from") ---------- */
+.backlinks {
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.backlinks-title {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-soft); margin: 0 0 12px;
+}
+.backlinks-list { list-style: none; margin: 0; padding: 0; }
+.backlinks-list li + li { margin-top: 6px; }
+.backlinks-list a { font-size: 16px; }
+
 /* ---------- Prose ---------- */
 .prose { font-size: 19px; line-height: 1.65; color: var(--text); }
 .prose > * + * { margin-top: 1.3em; }
 .prose h2 { font-size: 30px; letter-spacing: -0.02em; margin-top: 1.8em; }
 .prose h3 { font-size: 23px; letter-spacing: -0.01em; margin-top: 1.6em; }
 .prose a { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Obsidian-style [[wikilinks]], resolved client-side (assets/js/wikilinks.js). */
+.wikilink {
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  padding-bottom: 1px;
+}
+.wikilink:hover { border-bottom-color: var(--accent-hover); }
+.wikilink-unresolved {
+  color: var(--text-soft);
+  border-bottom: 1px dashed color-mix(in srgb, var(--text-soft) 55%, transparent);
+  cursor: help;
+}
+
 .prose blockquote {
   border-left: 3px solid var(--accent);
   padding-left: 20px; margin-left: 0;

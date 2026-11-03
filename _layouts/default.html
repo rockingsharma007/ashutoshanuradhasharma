@@ -2,11 +2,25 @@
 <html lang="en" data-theme="">
 {% include head.html %}
 <body>
+  {%- comment -%}
+    Per-post data for client-side [[wikilinks]], backlinks, and graph cross-links.
+    Emitted early so it is in the DOM before any page script (e.g. graph.js) runs.
+    `links` holds the raw [[targets]] extracted from the rendered body: kramdown
+    leaves [[...]] as literal text, so we split on the brackets here (no plugin
+    needed) and resolve the names to URLs in JS. Trailing commas are stripped
+    before JSON.parse, which keeps the Liquid simple.
+  {%- endcomment -%}
+  <script id="wikilink-data" type="application/json">
+  [{% for post in site.posts %}{"title":{{ post.title | jsonify }},"url":{{ post.url | relative_url | jsonify }},"category":{{ post.category | default: "" | jsonify }},"links":[{% assign chunks = post.content | split: '[[' %}{% for chunk in chunks offset: 1 %}{% if chunk contains ']]' %}{{ chunk | split: ']]' | first | split: '|' | first | strip | jsonify }},{% endif %}{% endfor %}]},{% endfor %}]
+  </script>
+
   {% include header.html %}
   <main class="site-main">
     {{ content }}
   </main>
   {% include footer.html %}
+
   <script src="{{ '/assets/js/main.js' | relative_url }}"></script>
+  <script src="{{ '/assets/js/wikilinks.js' | relative_url }}"></script>
 </body>
 </html>

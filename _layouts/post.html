@@ -28,6 +28,13 @@ layout: default
     <div class="prose">
       {{ content }}
     </div>
+
+    {%- comment -%} Populated by assets/js/wikilinks.js; stays hidden when nothing links here. {%- endcomment -%}
+    <aside class="backlinks" id="backlinks" data-post-url="{{ page.url | relative_url }}" hidden>
+      <h2 class="backlinks-title">Linked from</h2>
+      <ul class="backlinks-list"></ul>
+    </aside>
+
     <a class="back-link" href="{{ page.category | prepend: '/' | append: '/' | relative_url }}">&larr; More in {{ cat.name | default: 'this category' }}</a>
   </div>
 </article>

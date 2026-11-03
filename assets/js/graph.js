@@ -94,6 +94,38 @@
     walkTopics(bucket.roots, catId, 2, cat.slug);
   }
 
+  // ---- post↔post cross-links from [[wikilinks]] ----
+  // Read the same per-post link data the prose/backlinks use, resolve each
+  // [[target]] to a post URL (which is also that post's node id), and wire a
+  // draw-only cross-link. rel:true keeps them out of the spring force, so they
+  // decorate the layout exactly like a topic's "see also" edges.
+  (function () {
+    var wl = document.getElementById('wikilink-data');
+    if (!wl) return;
+    var data;
+    try { data = JSON.parse(stripCommas(wl.textContent)); } catch (e) { return; }
+    function norm(s) { return String(s).toLowerCase().replace(/[\s_-]+/g, ' ').trim(); }
+    var byName = {};
+    data.forEach(function (p) {
+      if (!p.url) return;
+      if (p.title) byName[norm(p.title)] = p.url;
+      var slug = p.url.replace(/\/$/, '').split('/').pop();
+      if (slug) byName[norm(slug)] = p.url;
+    });
+    var added = {};
+    data.forEach(function (p) {
+      (p.links || []).forEach(function (raw) {
+        var target = String(raw).split('|')[0].trim();
+        var dest = byName[norm(target)];
+        if (!dest || dest === p.url || !seen[p.url] || !seen[dest]) return;
+        var key = p.url < dest ? p.url + '|' + dest : dest + '|' + p.url;
+        if (added[key]) return;
+        added[key] = true;
+        rawLinks.push({ source: p.url, target: dest, rel: true });
+      });
+    });
+  })();
+
   var byId = {};
   var nodes = rawNodes.map(function (n) {
     var isRoot = n.type === 'root';
