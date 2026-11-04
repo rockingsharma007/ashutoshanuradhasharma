@@ -170,6 +170,65 @@ img { max-width: 100%; display: block; }
 }
 .pill:hover { background: var(--accent-hover); color: #fff; transform: translateY(-1px); }
 
+/* ---------- Home: one-page, full-screen snap sections ---------- */
+/* Scoped to the home page only — the `home` class is set on <html> in the
+   default layout. Each section fills the viewport and snaps into place, so the
+   hero and the graph each read as a full screen instead of being half-cut. */
+html.home { scroll-behavior: smooth; scroll-padding-top: 52px; }
+/* Only snap on tall-enough screens where motion is welcome — avoids trapping
+   scroll on short viewports or for users who prefer reduced motion. */
+@media (min-height: 640px) and (prefers-reduced-motion: no-preference) {
+  html.home { scroll-snap-type: y mandatory; }
+}
+.home-section {
+  min-height: 100vh;
+  min-height: 100svh;            /* accounts for mobile browser chrome */
+  scroll-snap-align: start;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-top: 52px;             /* clear the sticky nav */
+  position: relative;
+}
+/* Hero: centred, with room for the scroll cue at the foot. */
+.hero.home-section { padding: 52px 0 0; }
+/* Constellation: heading pinned near the top, graph fills the rest. */
+.graph-section.home-section {
+  justify-content: flex-start;
+  margin: 0;
+  padding: calc(52px + 2.5vh) 0 2.5vh;
+}
+.graph-section.home-section .section-head { margin: 0 0 6px; }
+.graph-section.home-section .graph-stage {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  margin-top: 4px;
+}
+/* Recent entries: the cards sit centred in their own screen. */
+.recent-section .section-head { margin-top: 0; }
+
+/* Animated "scroll down" cue, home hero only. */
+.scroll-cue {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+  width: 34px; height: 34px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint);
+  animation: scroll-cue-bob 1.9s ease-in-out infinite;
+}
+.scroll-cue:hover { color: var(--text-soft); }
+.scroll-cue-arrow {
+  width: 11px; height: 11px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(45deg); margin-top: -4px;
+}
+@keyframes scroll-cue-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(6px); }
+}
+@media (prefers-reduced-motion: reduce) { .scroll-cue { animation: none; } }
+
 /* ---------- Live graph ---------- */
 .graph-section { margin: 40px 0 10px; }
 .graph-hint { font-size: 13px; color: var(--text-faint); }
