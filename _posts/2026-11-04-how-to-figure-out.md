@@ -1,7 +1,8 @@
 ---
 title: "How to figure out!"
 date: 2026-11-04
-category: lab
+category: studio
+topic: literature/thinking
 read_time: "1 min read"
 ---
 
