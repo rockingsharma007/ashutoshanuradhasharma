@@ -483,6 +483,29 @@ img { max-width: 100%; display: block; }
 .composer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
 .composer-head h2 { margin: 0; }
 
+/* Click-to-collapse section heading (Manage posts). The chevron reuses the
+   tree twisty's shape: points right when collapsed, down when expanded. */
+.section-toggle {
+  display: flex; align-items: center; gap: 9px;
+  background: none; border: none; padding: 0; margin: 0;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.section-toggle h2 { margin: 0; }
+.section-twisty {
+  flex: none; width: 12px; height: 12px; position: relative;
+  color: var(--text-faint); transition: transform .14s ease, color .14s ease;
+  transform: rotate(90deg);                         /* expanded → points down */
+}
+.section-twisty::before {
+  content: ""; position: absolute; top: 2px; left: 3px;
+  border: 4px solid transparent; border-left-color: currentColor;
+}
+.section-toggle[aria-expanded="false"] .section-twisty { transform: rotate(0deg); }
+.section-toggle:hover .section-twisty { color: var(--text-soft); }
+.section-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+/* When collapsed, drop the header's bottom margin so the card is a tidy bar. */
+#manage-card:has(#manage-body[hidden]) .composer-head { margin-bottom: 0; }
+
 .field { margin-bottom: 18px; }
 .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
 .field .muted { font-weight: 400; color: var(--text-faint); }

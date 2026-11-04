@@ -123,17 +123,22 @@ noindex: true
   <!-- ===== Manage posts (revealed after auth) ===== -->
   <div class="admin-card" id="manage-card" hidden>
     <div class="composer-head">
-      <h2>Manage posts</h2>
+      <button type="button" class="section-toggle" id="manage-toggle" aria-expanded="true" aria-controls="manage-body">
+        <span class="section-twisty" aria-hidden="true"></span>
+        <h2>Manage posts</h2>
+      </button>
       <button type="button" class="link-btn" id="refresh-posts">Refresh</button>
     </div>
-    <p class="admin-help">
-      Your notes, filed by category and nested topic. Hover a folder to peek inside,
-      or click it to keep it open. <strong>Edit</strong> loads a note back into the
-      editor above; <strong>Delete</strong> removes its Markdown file. GitHub Pages
-      rebuilds in about a minute. Deletes can't be undone from here.
-    </p>
-    <div class="post-tree" id="post-list"></div>
-    <p class="status" id="manage-status" hidden></p>
+    <div id="manage-body">
+      <p class="admin-help">
+        Your notes, filed by category and nested topic. Hover a folder to peek inside,
+        or click it to keep it open. <strong>Edit</strong> loads a note back into the
+        editor above; <strong>Delete</strong> removes its Markdown file. GitHub Pages
+        rebuilds in about a minute. Deletes can't be undone from here.
+      </p>
+      <div class="post-tree" id="post-list"></div>
+      <p class="status" id="manage-status" hidden></p>
+    </div>
   </div>
 </section>
 
@@ -1008,6 +1013,17 @@ noindex: true
     });
   }
   $('refresh-posts').addEventListener('click', loadPosts);
+
+  // ---- collapse / expand the whole Manage posts section ----
+  (function () {
+    var toggle = $('manage-toggle'), body = $('manage-body');
+    if (!toggle || !body) return;
+    toggle.addEventListener('click', function () {
+      var expanded = toggle.getAttribute('aria-expanded') !== 'false';
+      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      body.hidden = expanded;
+    });
+  })();
 
   // ---- restore remembered token ----
   (function restore() {
