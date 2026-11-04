@@ -180,34 +180,40 @@ html.home { scroll-behavior: smooth; scroll-padding-top: 52px; }
 @media (min-height: 640px) and (prefers-reduced-motion: no-preference) {
   html.home { scroll-snap-type: y mandatory; }
 }
+/* Each section fills the viewport MINUS the 52px sticky nav, so content lands
+   centred in the space you actually see — not pushed low by the nav's height —
+   and the section edges line up exactly with the viewport as you snap. The nav
+   clearance for sections 2 and 3 comes from `scroll-padding-top`, not padding,
+   which keeps all three identical in size. (Vertical padding uses longhands so
+   it never wipes out the horizontal padding `.wrap` gives the last section.) */
 .home-section {
-  min-height: 100vh;
-  min-height: 100svh;            /* accounts for mobile browser chrome */
+  min-height: calc(100vh - 52px);
+  min-height: calc(100svh - 52px);
   scroll-snap-align: start;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding-top: 52px;             /* clear the sticky nav */
   position: relative;
+  padding-top: 24px;
+  padding-bottom: 24px;
 }
-/* Hero: centred, with room for the scroll cue at the foot. */
-.hero.home-section { padding: 52px 0 0; }
-/* Constellation: heading pinned near the top, graph fills the rest. */
+.hero.home-section { padding-top: 24px; padding-bottom: 0; }
+/* Constellation: heading + legend near the top, graph fills the rest. */
 .graph-section.home-section {
   justify-content: flex-start;
   margin: 0;
-  padding: calc(52px + 2.5vh) 0 2.5vh;
+  padding-top: 2.6vh;
+  padding-bottom: 2.6vh;
 }
-.graph-section.home-section .section-head { margin: 0 0 6px; }
+.graph-section.home-section .section-head { margin: 0 0 8px; }
 .graph-section.home-section .graph-stage {
   flex: 1 1 auto;
   height: auto;
   min-height: 0;
-  margin-top: 4px;
+  margin-top: 6px;
 }
-/* Recent entries: the cards sit centred in their own screen. */
-.recent-section .section-head { margin-top: 0; }
+.recent-section .section-head { margin: 0 0 6px; }
 
 /* Animated "scroll down" cue, home hero only. */
 .scroll-cue {
@@ -228,6 +234,17 @@ html.home { scroll-behavior: smooth; scroll-padding-top: 52px; }
   50%      { transform: translateX(-50%) translateY(6px); }
 }
 @media (prefers-reduced-motion: reduce) { .scroll-cue { animation: none; } }
+
+/* Section content: hero meta, graph legend, recent-entries trim. */
+.hero-meta { margin-top: 24px; font-size: 14px; color: var(--text-faint); }
+.graph-sub { font-size: 15px; color: var(--text-soft); margin: 2px 0 12px; max-width: 56ch; line-height: 1.5; }
+.graph-legend { display: flex; gap: 20px; flex-wrap: wrap; }
+.legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-soft); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--d, var(--accent)); box-shadow: 0 0 8px var(--d, var(--accent)); }
+.recent-sub { font-size: 15px; color: var(--text-soft); margin: 0 0 26px; max-width: 56ch; line-height: 1.5; }
+.recent-foot { margin-top: 32px; display: flex; justify-content: center; }
+.pill-ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.pill-ghost:hover { background: var(--bg-elev); color: var(--accent); }
 
 /* ---------- Live graph ---------- */
 .graph-section { margin: 40px 0 10px; }
